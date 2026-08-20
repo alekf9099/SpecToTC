@@ -8,6 +8,7 @@ const { generateFromSpec } = require('./engine');
 const { summarize } = require('./engine/generator');
 const { diffSpecs } = require('./diff');
 const { toCsv, csvFileName } = require('./csv');
+const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
 const ai = require('./ai');
 
 const MAX_SPEC_LENGTH = Number(process.env.SPECTOTC_MAX_SPEC || 300000);
@@ -58,6 +59,7 @@ function createApp() {
       version: require('../package.json').version,
       node: process.version,
       ai: { enabled: ai.isEnabled(), model: ai.MODEL },
+      upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
       time: new Date().toISOString(),
     });
   });
@@ -69,6 +71,39 @@ function createApp() {
       res.json({ ok: true, specText: data });
     });
   });
+
+  /* ------------------------------------------------- 파일 → 기획서 텍스트 */
+  // 멀티파트 대신 raw 바디 + X-File-Name 헤더를 쓴다.
+  // 브라우저에서 fetch(file) 로 File 객체를 그대로 body 에 실을 수 있어 파서 의존성이 없다.
+  app.post('/api/extract-text',
+    express.raw({ type: () => true, limit: `${Math.ceil(MAX_UPLOAD / 1024 / 1024)}mb` }),
+    async (req, res) => {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) {
+        return badRequest(res, '업로드된 파일 본문이 비어 있습니다.');
+      }
+
+      let fileName = 'upload';
+      const header = req.get('X-File-Name');
+      if (header) {
+        try {
+          fileName = path.basename(decodeURIComponent(header));
+        } catch (err) {
+          fileName = path.basename(header);
+        }
+      }
+
+      try {
+        const { text, meta } = await extractText(req.body, fileName);
+        const truncated = text.length > MAX_SPEC_LENGTH;
+        res.json({
+          ok: true,
+          specText: truncated ? text.slice(0, MAX_SPEC_LENGTH) : text,
+          meta: { ...meta, chars: text.length, truncated },
+        });
+      } catch (err) {
+        badRequest(res, err.message);
+      }
+    });
 
   /* ---------------------------------------------------- TC 생성 (메인) */
   app.post('/api/generate-tc', async (req, res) => {

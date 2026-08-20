@@ -157,6 +157,64 @@ test('동일 문서 비교 시 변경이 없다', () => {
   assert.equal(d.summary.modified, 0);
 });
 
+/* ------------------------------------------------------------ 파일 추출 */
+
+const { extractText } = require('../src/extract');
+const { makeDocx, makePdf } = require('./fixtures');
+
+test('.docx 에서 제목·목록·표·이스케이프를 복원한다', async () => {
+  const { text, meta } = await extractText(makeDocx(), 'spec.docx');
+  assert.equal(meta.kind, 'docx');
+  assert.ok(text.includes('# 회원 서비스 기획서'), '제목1 → # 변환 실패');
+  assert.ok(text.includes('## 로그인'), '제목2 → ## 변환 실패');
+  assert.ok(text.includes('- 비밀번호는 8자 이상 20자 이하로 입력해야 한다.'), '목록 → - 변환 실패');
+  assert.ok(/서버 응답이 3초 이내 에 오지 않으면/.test(text), '분리된 run 병합 실패');
+  assert.ok(text.includes('| 항목 | 결제 승인이 실패하면'), '표 → 파이프 행 변환 실패');
+  assert.ok(text.includes('AT&T 문자 <태그>'), 'XML 엔티티 복원 실패');
+});
+
+test('.docx 추출 결과로 TC 가 생성된다 (제목이 영역으로 잡힌다)', async () => {
+  const { text } = await extractText(makeDocx(), 'spec.docx');
+  const { testCases } = generateFromSpec(text);
+  assert.ok(testCases.length > 5, `TC 부족: ${testCases.length}`);
+  assert.ok(testCases.some((tc) => tc.area === '로그인'), '영역 인식 실패: ' + [...new Set(testCases.map((t) => t.area))].join(','));
+  assert.ok(testCases.some((tc) => tc.tags.includes('boundary')), '경계값 TC 없음');
+});
+
+test('.pdf 에서 텍스트를 추출한다', async () => {
+  const pdf = makePdf(['Password must be at least 8 characters.', 'If payment fails, do not confirm the order.']);
+  const { text, meta } = await extractText(pdf, 'spec.pdf');
+  assert.equal(meta.kind, 'pdf');
+  assert.equal(meta.pages, 1);
+  assert.match(text, /at least 8 characters/);
+  assert.match(text, /payment fails/);
+});
+
+test('확장자가 없어도 매직 넘버로 형식을 판별한다', async () => {
+  const pdf = await extractText(makePdf(['Retry up to 3 times.']), 'unknown-name');
+  assert.equal(pdf.meta.kind, 'pdf');
+  const docx = await extractText(makeDocx(), 'unknown-name');
+  assert.equal(docx.meta.kind, 'docx');
+});
+
+test('CP949 로 저장된 텍스트 파일을 디코딩한다', async () => {
+  // "- 비밀번호는 8자 이상이다." 를 CP949 로 인코딩한 바이트
+  const cp949 = Buffer.from([
+    0x2d, 0x20, 0xba, 0xf1, 0xb9, 0xd0, 0xb9, 0xf8, 0xc8, 0xa3, 0xb4, 0xc2,
+    0x20, 0x38, 0xc0, 0xda, 0x20, 0xc0, 0xcc, 0xbb, 0xf3, 0xc0, 0xcc, 0xb4, 0xd9, 0x2e,
+  ]);
+  const { text, meta } = await extractText(cp949, 'spec.txt');
+  assert.equal(meta.kind, 'text');
+  assert.ok(text.includes('비밀번호'), `디코딩 실패: ${text}`);
+  assert.match(meta.encoding, /euc-kr/);
+});
+
+test('지원하지 않는 형식은 명확한 오류를 낸다', async () => {
+  await assert.rejects(() => extractText(Buffer.from('x'), 'spec.hwp'), /한글\(\.hwp/);
+  await assert.rejects(() => extractText(Buffer.from('x'), 'spec.doc'), /\.docx 로 다시 저장/);
+  await assert.rejects(() => extractText(Buffer.alloc(0), 'a.md'), /비어 있습니다/);
+});
+
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn) {
@@ -228,6 +286,27 @@ test('POST /api/diff-check', () => withServer(async (base) => {
   const data = await res.json();
   assert.equal(res.status, 200);
   assert.equal(data.summary.modified, 1);
+}));
+
+test('POST /api/extract-text — .docx 업로드', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/extract-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent('로그인 기획서.docx') },
+    body: makeDocx(),
+  });
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.meta.kind, 'docx');
+  assert.equal(data.meta.fileName, '로그인 기획서.docx', '한글 파일명 복원 실패');
+  assert.ok(data.specText.includes('## 로그인'));
+}));
+
+test('POST /api/extract-text — 빈 본문은 400', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/extract-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+  });
+  assert.equal(res.status, 400);
 }));
 
 test('없는 API 경로는 404 JSON', () => withServer(async (base) => {
