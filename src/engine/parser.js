@@ -68,7 +68,9 @@ function detectComparator(fragment) {
 
 function normalizeUnit(raw) {
   if (!raw) return null;
-  const key = raw.trim();
+  // "최대 12자까지" 처럼 단위 캡처에 비교어가 섞여 들어온 경우를 잘라낸다.
+  const key = raw.trim().replace(/(이상|이하|이내|초과|미만|까지|이후|이전)+$/, '');
+  if (!key) return null;
   return UNIT_ALIASES[key] || UNIT_ALIASES[key.toLowerCase()] || (HANGUL.test(key) || /^[A-Za-z%]+$/.test(key) ? key : null);
 }
 

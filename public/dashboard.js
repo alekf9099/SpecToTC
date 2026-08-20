@@ -3,6 +3,10 @@
 /* ------------------------------------------------------------------ state */
 const state = {
   testCases: [],
+  specSummary: null,
+  aiSummary: null,
+  view: 'tc',
+  expanded: new Set(),
   filter: { type: 'all', priority: 'all', area: 'all', q: '' },
 };
 
@@ -45,7 +49,11 @@ function visibleCases() {
     if (priority !== 'all' && tc.priority !== priority) return false;
     if (area !== 'all' && tc.area !== area) return false;
     if (needle) {
-      const hay = `${tc.tc_id} ${tc.scenario} ${tc.expected} ${tc.precondition} ${(tc.steps || []).join(' ')}`.toLowerCase();
+      const hay = [
+        tc.tc_id, tc.title || tc.scenario, tc.objective,
+        (tc.expected || []).join(' '), (tc.precondition || []).join(' '), (tc.steps || []).join(' '),
+        tc.requirement && tc.requirement.text,
+      ].join(' ').toLowerCase();
       if (!hay.includes(needle)) return false;
     }
     return true;
@@ -57,23 +65,61 @@ function renderTable() {
   const body = $('#tcBody');
 
   if (!rows.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="8">${
-      state.testCases.length ? '필터 조건에 맞는 테스트케이스가 없습니다.' : '좌측에 기획서를 붙여넣고 <b>테스트케이스 생성</b>을 누르세요.'
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">${
+      state.testCases.length ? '필터 조건에 맞는 테스트케이스가 없습니다.' : '좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.'
     }</td></tr>`;
     return;
   }
 
-  body.innerHTML = rows.map((tc) => `
-    <tr class="prio-${esc(tc.priority)}">
-      <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}</td>
-      <td>${esc(tc.area)}</td>
-      <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}">${esc(tc.type)}</span></td>
-      <td>${esc(tc.scenario)}</td>
-      <td>${esc(tc.precondition)}</td>
-      <td class="cell-steps"><ol>${(tc.steps || []).map((s) => `<li>${esc(s)}</li>`).join('')}</ol></td>
-      <td>${esc(tc.expected)}</td>
-      <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
-    </tr>`).join('');
+  const list = (items, ordered) => {
+    if (!Array.isArray(items) || !items.length) return '<p class="detail-empty">-</p>';
+    const tag = ordered ? 'ol' : 'ul';
+    return `<${tag} class="detail-list">${items.map((s) => `<li>${esc(s)}</li>`).join('')}</${tag}>`;
+  };
+
+  body.innerHTML = rows.map((tc) => {
+    const open = state.expanded.has(tc.tc_id);
+    const req = tc.requirement || {};
+    const title = tc.title || tc.scenario || '';
+
+    const detail = `
+      <tr class="detail-row" data-detail="${esc(tc.tc_id)}"${open ? '' : ' hidden'}>
+        <td colspan="6">
+          <div class="detail">
+            <div class="detail-block detail-objective"><h4>검증 목적</h4><p>${esc(tc.objective || '-')}</p></div>
+            <div class="detail-grid">
+              <div class="detail-block"><h4>사전 조건</h4>${list(tc.precondition, false)}</div>
+              <div class="detail-block"><h4>수행 단계</h4>${list(tc.steps, true)}</div>
+              <div class="detail-block"><h4>기대 결과</h4>${list(tc.expected, false)}</div>
+            </div>
+            <div class="detail-block detail-source">
+              <h4>근거 요구사항</h4>
+              <p><span class="mono">${esc(req.id || tc.requirement_id || '-')}</span>
+                 ${req.line != null ? `<span class="mono">L${req.line}</span>` : ''}
+                 ${esc(req.text || tc.source_text || '')}</p>
+              <p class="detail-tags">${(req.categories || tc.categories || []).concat(tc.tags || [])
+                .map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</p>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+
+    return `
+      <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
+        <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}</td>
+        <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}">${esc(tc.type)}</span></td>
+        <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
+        <td class="cell-area">${esc(tc.area)}</td>
+        <td class="cell-title">${esc(title)}<span class="cell-objective">${esc(tc.objective || '')}</span></td>
+        <td class="cell-toggle"><span class="chevron" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
+      </tr>${detail}`;
+  }).join('');
+}
+
+function toggleDetail(tcId) {
+  if (state.expanded.has(tcId)) state.expanded.delete(tcId);
+  else state.expanded.add(tcId);
+  renderTable();
 }
 
 function renderSummary(data) {
@@ -125,8 +171,12 @@ async function generate() {
     });
 
     state.testCases = data.testCases || [];
+    state.specSummary = data.specSummary || null;
+    state.aiSummary = null;
+    state.expanded.clear();
     renderSummary(data);
     renderTable();
+    renderSpecSummary();
 
     const lines = [`완료 — TC ${state.testCases.length}건 / 요구사항 ${data.requirements.length}건 (${data.elapsedMs}ms)`];
     if (data.ai && data.ai.requested) {
@@ -285,6 +335,8 @@ async function runDiff() {
     renderDiff(data);
 
     state.testCases = data.regressionTestCases || [];
+    state.expanded.clear();
+    setView('tc');
     renderSummary({ summary: data.regressionSummary, areas: data.summary.impactedAreas, requirements: [] });
     renderTable();
 
@@ -326,13 +378,34 @@ function bind() {
   $('#btnGenerate').addEventListener('click', generate);
   bindDropzone();
 
+  $$('.view-switch .tab').forEach((tab) => {
+    tab.addEventListener('click', () => setView(tab.dataset.view));
+  });
+
+  // 행이 매번 다시 렌더되므로 tbody 에 위임해 상세를 토글한다.
+  $('#tcBody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr.tc-row');
+    if (row) toggleDetail(row.dataset.tc);
+  });
+  $('#tcBody').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest('tr.tc-row');
+    if (!row) return;
+    e.preventDefault();
+    toggleDetail(row.dataset.tc);
+  });
+
   $('#btnClear').addEventListener('click', () => {
     $('#specText').value = '';
     $('#fileInput').value = '';
     showFileChip(null);
     state.testCases = [];
+    state.specSummary = null;
+    state.aiSummary = null;
+    state.expanded.clear();
     renderSummary({ summary: {}, areas: [], requirements: [] });
     renderTable();
+    renderSpecSummary();
     setStatus('');
   });
 
@@ -366,9 +439,9 @@ function bind() {
   $('#btnCsv').addEventListener('click', () => exportCsv({ excel: false, bom: false }));
   $('#btnJson').addEventListener('click', exportJson);
 
-  $$('.tab').forEach((tab) => {
+  $$('.tabs .tab').forEach((tab) => {
     tab.addEventListener('click', () => {
-      $$('.tab').forEach((t) => t.classList.toggle('is-active', t === tab));
+      $$('.tabs .tab').forEach((t) => t.classList.toggle('is-active', t === tab));
       $$('.tab-panel').forEach((p) => p.classList.toggle('is-active', p.dataset.panel === tab.dataset.tab));
     });
   });

@@ -79,6 +79,11 @@
 
     <!-- ------------------------------------------------ 우측: 결과 -->
     <section class="pane pane-result">
+      <div class="view-switch" role="tablist">
+        <button class="tab is-active" data-view="tc" role="tab">테스트케이스</button>
+        <button class="tab" data-view="summary" role="tab">문서 요약</button>
+      </div>
+
       <div class="result-head">
         <div id="summary" class="summary">
           <span class="summary-empty">아직 생성된 테스트케이스가 없습니다.</span>
@@ -109,28 +114,31 @@
         <input id="searchInput" class="input" type="search" placeholder="시나리오/기대결과 검색" />
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap" id="tcView">
         <table class="tc-table">
           <thead>
             <tr>
               <th class="col-id">TC_ID</th>
-              <th class="col-area">요구사항 영역</th>
               <th class="col-type">유형</th>
-              <th class="col-scenario">테스트 시나리오</th>
-              <th class="col-pre">사전 조건</th>
-              <th class="col-steps">수행 단계</th>
-              <th class="col-expected">기대 결과</th>
               <th class="col-priority">중요도</th>
+              <th class="col-area">영역</th>
+              <th class="col-scenario">테스트 시나리오</th>
+              <th class="col-toggle" aria-label="상세"></th>
             </tr>
           </thead>
           <tbody id="tcBody">
-            <tr class="empty-row"><td colspan="8">좌측에 기획서를 붙여넣고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
+            <tr class="empty-row"><td colspan="6">좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="summary-view" id="summaryView" hidden>
+        <div class="summary-empty-box">기획서를 생성하면 핵심 요약이 표시됩니다.</div>
       </div>
     </section>
   </main>
 
+  <script src="./summary-view.js"></script>
   <script src="./dashboard.js"></script>
 </body>
 </html>

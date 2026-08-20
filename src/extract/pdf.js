@@ -55,6 +55,43 @@ function itemsToLines(items) {
   return lines;
 }
 
+
+/** 페이지마다 반복되는 머리글·바닥글, 페이지 번호/인쇄 시각 줄 */
+const CHROME_PATTERNS = [
+  /^\d+\s*\/\s*\d+$/,                       // 1/4
+  /^-?\s*\d+\s*-?$/,                          // - 3 -
+  /^https?:\/\/\S+(\s+\d+\s*\/\s*\d+)?$/i, // URL + 페이지 번호
+  /^\d{2,4}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2}\.?\s*(오전|오후|AM|PM)?\s*\d{0,2}:?\d{0,2}/i,
+  /^page\s+\d+(\s+of\s+\d+)?$/i,
+];
+
+function isChrome(line) {
+  return CHROME_PATTERNS.some((re) => re.test(line.trim()));
+}
+
+/**
+ * 여러 페이지에 반복 등장하는 줄을 머리글·바닥글로 보고 제거한다.
+ * (그대로 두면 "26. 6. 23. 오전 11:39 문서명" 같은 줄이 요구사항 영역으로 잡힌다.)
+ */
+function stripPageChrome(pages) {
+  const seen = new Map();
+  for (const lines of pages) {
+    for (const line of new Set(lines)) {
+      const key = line.trim();
+      if (key.length < 4) continue;
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+  }
+
+  const threshold = Math.max(2, Math.ceil(pages.length * 0.5));
+  const repeated = new Set([...seen.entries()].filter(([, n]) => n >= threshold).map(([k]) => k));
+
+  return pages.map((lines) => lines.filter((line) => {
+    const key = line.trim();
+    return key && !isChrome(key) && !repeated.has(key);
+  }));
+}
+
 /** PDF 목록 기호를 마크다운 불릿으로 정규화 */
 function normalizeBullets(line) {
   return line.replace(/^\s*[•·▪●○◦※•▪]\s*/, '- ');
@@ -87,26 +124,32 @@ async function extractPdf(buffer, options = {}) {
 
   const pageCount = doc.numPages;
   const extractedPages = Math.min(pageCount, maxPages);
-  const out = [];
+  const pages = [];
 
   try {
     for (let i = 1; i <= extractedPages; i += 1) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
-      const lines = itemsToLines(content.items).map(normalizeBullets).filter(Boolean);
-      if (lines.length) out.push(lines.join('\n'));
+      pages.push(itemsToLines(content.items).map(normalizeBullets).filter(Boolean));
       page.cleanup();
     }
   } finally {
     await doc.destroy();
   }
 
-  const text = out.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+  const cleaned = stripPageChrome(pages);
+  const removed = pages.reduce((n, p) => n + p.length, 0) - cleaned.reduce((n, p) => n + p.length, 0);
+  const text = cleaned
+    .filter((lines) => lines.length)
+    .map((lines) => lines.join('\n'))
+    .join('\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   if (!text) {
     throw new Error('PDF 에서 텍스트를 찾지 못했습니다. 스캔 이미지 PDF 는 OCR 이 필요합니다.');
   }
 
-  return { text, meta: { pages: pageCount, extractedPages } };
+  return { text, meta: { pages: pageCount, extractedPages, removedChromeLines: removed } };
 }
 
-module.exports = { extractPdf, itemsToLines, normalizeBullets };
+module.exports = { extractPdf, itemsToLines, normalizeBullets, stripPageChrome, isChrome };

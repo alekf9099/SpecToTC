@@ -4,9 +4,10 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 
-const { generateFromSpec } = require('./engine');
+const { generateFromSpec, parseDocument } = require('./engine');
 const { summarize } = require('./engine/generator');
 const { diffSpecs } = require('./diff');
+const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
 const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
 const ai = require('./ai');
@@ -132,6 +133,10 @@ function createApp() {
       })),
       testCases: result.testCases,
       summary: result.summary,
+      specSummary: summarizeSpec({ requirements: result.requirements }, {
+        topN: Number((req.body && req.body.summaryTopN)) || 8,
+        testCases: result.testCases,
+      }),
       ai: { requested: Boolean(req.body && req.body.useAI), enabled: false },
     };
 
@@ -175,6 +180,36 @@ function createApp() {
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
     res.send(csv);
+  });
+
+  /* ------------------------------------------------------- 기획서 요약 */
+  app.post('/api/summarize', async (req, res) => {
+    const { value: specText, error } = readSpecText(req.body || {});
+    if (error) return badRequest(res, error);
+
+    const parsed = parseDocument(specText);
+    const topN = Number(req.body && req.body.topN);
+    const summary = summarizeSpec(parsed, { topN: Number.isInteger(topN) && topN > 0 && topN <= 50 ? topN : 8 });
+
+    const response = {
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      summary,
+      ai: { requested: Boolean(req.body && req.body.useAI), enabled: false },
+    };
+
+    if (req.body && req.body.useAI) {
+      const enriched = await ai.summarizeWithClaude(specText, { ruleSummary: summary });
+      response.ai = {
+        requested: true,
+        enabled: enriched.enabled,
+        model: enriched.model,
+        error: enriched.error,
+        summary: enriched.summary,
+      };
+    }
+
+    res.json(response);
   });
 
   /* ------------------------------------------------------- 기획서 diff */
