@@ -1,0 +1,31 @@
+{
+  "name": "spectotc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "기획서(SRS) 기반 AI 테스트케이스 자동 생성기 — 규칙 엔진 + 선택적 Claude 보강",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:env": "node --env-file=.env server.js",
+    "dev": "node --watch server.js",
+    "test": "node test/run.js",
+    "vercel-build": "echo \"static dashboard + serverless function - no build step\""
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.120.0"
+  },
+  "keywords": [
+    "qa",
+    "testcase",
+    "srs",
+    "test-case-generator",
+    "claude"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# 환경 변수 (ANTHROPIC_API_KEY 등)
+.env
+.env.local
+
+# 로컬 도구 설정
+.claude/settings.local.json
+.vercel/
+
+# 로그
+*.log
+npm-debug.log*
+
+# 내보낸 결과물
+*.csv
+!samples/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

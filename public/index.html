@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpecToTC — 기획서 기반 테스트케이스 생성기</title>
+  <link rel="stylesheet" href="./dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">TC</span>
+      <div>
+        <h1>SpecToTC</h1>
+        <p>기획서(SRS) → 테스트케이스 자동 생성 · Pass / Fail / Edge Case</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="aiBadge" class="badge badge-muted">AI 상태 확인 중…</span>
+      <span id="healthBadge" class="badge badge-muted">-</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ------------------------------------------------ 좌측: 입력 -->
+    <section class="pane pane-input">
+      <div class="tabs" role="tablist">
+        <button class="tab is-active" data-tab="generate" role="tab">TC 생성</button>
+        <button class="tab" data-tab="diff" role="tab">기획서 비교(Diff)</button>
+      </div>
+
+      <div class="tab-panel is-active" data-panel="generate">
+        <label class="field-label" for="specText">기획서 텍스트 (Markdown / SRS / 일반 문구)</label>
+        <textarea id="specText" spellcheck="false"
+          placeholder="예) 비밀번호는 8자 이상 20자 이하로 입력해야 한다.&#10;예) 결제 승인이 실패하면 주문을 확정하지 않고 실패 사유를 안내한다."></textarea>
+
+        <div class="options">
+          <label><input type="checkbox" id="optPass" checked /> Pass</label>
+          <label><input type="checkbox" id="optFail" checked /> Fail</label>
+          <label><input type="checkbox" id="optEdge" checked /> Edge Case</label>
+          <label class="opt-ai" title="ANTHROPIC_API_KEY 가 설정된 경우에만 동작합니다.">
+            <input type="checkbox" id="optAI" /> Claude 보강
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="btnGenerate" class="btn btn-primary">테스트케이스 생성</button>
+          <button id="btnSample" class="btn">샘플 불러오기</button>
+          <button id="btnClear" class="btn btn-ghost">지우기</button>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-panel="diff">
+        <label class="field-label" for="oldText">이전 기획서</label>
+        <textarea id="oldText" class="textarea-half" spellcheck="false" placeholder="변경 전 기획서 텍스트"></textarea>
+        <label class="field-label" for="newText">신규 기획서</label>
+        <textarea id="newText" class="textarea-half" spellcheck="false" placeholder="변경 후 기획서 텍스트"></textarea>
+        <div class="actions">
+          <button id="btnDiff" class="btn btn-primary">변경 요구사항 추출</button>
+          <button id="btnDiffSample" class="btn">샘플 채우기</button>
+        </div>
+        <div id="diffResult" class="diff-result"></div>
+      </div>
+
+      <div id="statusBox" class="status" hidden></div>
+    </section>
+
+    <!-- ------------------------------------------------ 우측: 결과 -->
+    <section class="pane pane-result">
+      <div class="result-head">
+        <div id="summary" class="summary">
+          <span class="summary-empty">아직 생성된 테스트케이스가 없습니다.</span>
+        </div>
+        <div class="export">
+          <button id="btnCsv" class="btn btn-sm" disabled>CSV</button>
+          <button id="btnExcel" class="btn btn-sm" disabled>Excel(CSV·UTF-8 BOM)</button>
+          <button id="btnJson" class="btn btn-sm btn-ghost" disabled>JSON</button>
+        </div>
+      </div>
+
+      <div class="filters">
+        <div class="chips" id="typeFilters">
+          <button class="chip is-active" data-type="all">전체</button>
+          <button class="chip chip-pass" data-type="Pass">Pass</button>
+          <button class="chip chip-fail" data-type="Fail">Fail</button>
+          <button class="chip chip-edge" data-type="Edge Case">Edge</button>
+        </div>
+        <select id="priorityFilter" class="select">
+          <option value="all">중요도 전체</option>
+          <option value="High">High</option>
+          <option value="Med">Med</option>
+          <option value="Low">Low</option>
+        </select>
+        <select id="areaFilter" class="select">
+          <option value="all">영역 전체</option>
+        </select>
+        <input id="searchInput" class="input" type="search" placeholder="시나리오/기대결과 검색" />
+      </div>
+
+      <div class="table-wrap">
+        <table class="tc-table">
+          <thead>
+            <tr>
+              <th class="col-id">TC_ID</th>
+              <th class="col-area">요구사항 영역</th>
+              <th class="col-type">유형</th>
+              <th class="col-scenario">테스트 시나리오</th>
+              <th class="col-pre">사전 조건</th>
+              <th class="col-steps">수행 단계</th>
+              <th class="col-expected">기대 결과</th>
+              <th class="col-priority">중요도</th>
+            </tr>
+          </thead>
+          <tbody id="tcBody">
+            <tr class="empty-row"><td colspan="8">좌측에 기획서를 붙여넣고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="./dashboard.js"></script>
+</body>
+</html>
