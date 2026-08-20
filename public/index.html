@@ -72,8 +72,8 @@
           <span class="summary-empty">아직 생성된 테스트케이스가 없습니다.</span>
         </div>
         <div class="export">
-          <button id="btnCsv" class="btn btn-sm" disabled>CSV</button>
-          <button id="btnExcel" class="btn btn-sm" disabled>Excel(CSV·UTF-8 BOM)</button>
+          <button id="btnExcel" class="btn btn-sm" disabled title="UTF-8 BOM + CRLF — Excel·구글시트에서 한글이 깨지지 않습니다.">CSV (Excel용·권장)</button>
+          <button id="btnCsv" class="btn btn-sm" disabled title="BOM 없는 LF CSV — TestRail/Jira 등 BOM 을 거부하는 시스템 연동용. Excel 로 열면 한글이 깨집니다.">CSV (BOM 없음·연동용)</button>
           <button id="btnJson" class="btn btn-sm btn-ghost" disabled>JSON</button>
         </div>
       </div>

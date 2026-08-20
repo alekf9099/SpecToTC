@@ -133,7 +133,8 @@ function createApp() {
     }
     if (!testCases.length) return badRequest(res, '내보낼 테스트케이스가 없습니다.');
 
-    const csv = toCsv(testCases, { excel: body.excel !== false });
+    // bom 은 기본 true (Excel 한글 호환). BOM 을 거부하는 외부 시스템용으로만 false 를 허용한다.
+    const csv = toCsv(testCases, { excel: body.excel !== false, bom: body.bom !== false });
     const fileName = /^[\w.\-가-힣]{1,80}$/.test(body.fileName || '') ? body.fileName : csvFileName();
 
     res.set('Content-Type', 'text/csv; charset=utf-8');

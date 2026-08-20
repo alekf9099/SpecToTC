@@ -118,6 +118,18 @@ test('CSV 는 BOM/헤더/이스케이프를 포함한다', () => {
   assert.equal(csv.split('\r\n').filter(Boolean).length, testCases.length + 1);
 });
 
+test('excel:false(LF 줄바꿈)여도 BOM 은 유지된다', () => {
+  const { testCases } = generateFromSpec('- 비밀번호는 8자 이상이다.');
+  const csv = toCsv(testCases, { excel: false });
+  assert.ok(csv.startsWith('﻿'), 'LF 모드에서 BOM 이 빠졌다 — Excel 한글 깨짐 원인');
+  assert.ok(!csv.includes('\r\n'), 'LF 모드인데 CRLF 가 있다');
+});
+
+test('BOM 제거는 bom:false 로만 가능하다', () => {
+  const { testCases } = generateFromSpec('- 비밀번호는 8자 이상이다.');
+  assert.ok(!toCsv(testCases, { bom: false }).startsWith('﻿'));
+});
+
 test('CSV 셀에 수식 인젝션이 들어가지 않는다', () => {
   const csv = toCsv([{ tc_id: '=cmd|calc', area: 'a', type: 'Pass', scenario: 's', precondition: 'p', steps: ['x'], expected: 'e', priority: 'Low' }]);
   assert.ok(csv.includes("'=cmd|calc"), csv);
@@ -193,6 +205,19 @@ test('POST /api/export-csv — specText 만으로도 CSV 반환', () => withServ
   assert.match(res.headers.get('content-disposition'), /attachment/);
   const text = await res.text();
   assert.ok(text.includes('TC_ID'));
+}));
+
+test('POST /api/export-csv — 응답 바이트가 UTF-8 BOM 으로 시작한다', () => withServer(async (base) => {
+  const res = await post(base, '/api/export-csv', { specText: SAMPLE });
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.equal(buf.subarray(0, 3).toString('hex'), 'efbbbf', 'BOM 없음 — Excel 에서 한글이 깨진다');
+  assert.match(buf.toString('utf8'), /요구사항 영역/, '한글 헤더가 UTF-8 로 디코딩되지 않는다');
+}));
+
+test('POST /api/export-csv — bom:false 일 때만 BOM 이 빠진다', () => withServer(async (base) => {
+  const res = await post(base, '/api/export-csv', { specText: SAMPLE, bom: false });
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.notEqual(buf.subarray(0, 3).toString('hex'), 'efbbbf');
 }));
 
 test('POST /api/diff-check', () => withServer(async (base) => {

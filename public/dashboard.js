@@ -140,13 +140,13 @@ async function generate() {
   }
 }
 
-async function exportCsv(excel) {
+async function exportCsv(opts = {}) {
   if (!state.testCases.length) return;
   try {
     const res = await fetch('/api/export-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ testCases: visibleCases(), excel }),
+      body: JSON.stringify({ testCases: visibleCases(), excel: opts.excel !== false, bom: opts.bom !== false }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
@@ -265,8 +265,8 @@ function bind() {
     setStatus('샘플 비교 데이터를 채웠습니다. [변경 요구사항 추출]을 눌러보세요.', 'ok');
   });
 
-  $('#btnCsv').addEventListener('click', () => exportCsv(false));
-  $('#btnExcel').addEventListener('click', () => exportCsv(true));
+  $('#btnExcel').addEventListener('click', () => exportCsv({ excel: true, bom: true }));
+  $('#btnCsv').addEventListener('click', () => exportCsv({ excel: false, bom: false }));
   $('#btnJson').addEventListener('click', exportJson);
 
   $$('.tab').forEach((tab) => {

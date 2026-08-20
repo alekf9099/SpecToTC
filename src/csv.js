@@ -27,15 +27,18 @@ function escapeCell(value) {
 
 /**
  * 테스트케이스 배열 → CSV 문자열
+ *
  * @param {Array} testCases
  * @param {{bom?: boolean, excel?: boolean, delimiter?: string}} opts
- *   excel: true → BOM + CRLF (Excel 에서 한글이 깨지지 않도록)
+ *   bom   : UTF-8 BOM 부착 여부. **기본 true** — 없으면 Excel 에서 한글이 깨진다.
+ *           BOM 을 거부하는 외부 시스템(TestRail/Jira import 등)에 넣을 때만 false.
+ *   excel : true(기본) → CRLF 줄바꿈, false → LF 줄바꿈. BOM 과는 무관하다.
  */
 function toCsv(testCases, opts = {}) {
   const excel = opts.excel !== false;
   const delimiter = opts.delimiter || ',';
   const eol = excel ? '\r\n' : '\n';
-  const bom = opts.bom != null ? opts.bom : excel;
+  const bom = opts.bom !== false;
 
   const rows = [COLUMNS.map((c) => escapeCell(c.header)).join(delimiter)];
   for (const tc of testCases || []) {

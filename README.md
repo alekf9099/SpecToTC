@@ -152,10 +152,15 @@ SpecToTC/
 `testCases` 배열을 보내면 그대로 CSV 로, `specText` 만 보내면 생성까지 한 번에 처리합니다.
 
 ```jsonc
-{ "testCases": [ /* ... */ ], "excel": true, "fileName": "로그인-TC.csv" }
+{ "testCases": [ /* ... */ ], "excel": true, "bom": true, "fileName": "로그인-TC.csv" }
 ```
 
-`excel: true`(기본) → UTF-8 BOM + CRLF 로 내려보내 Excel 에서 한글이 깨지지 않습니다.
+| 파라미터 | 기본값 | 의미 |
+|---|---|---|
+| `bom` | `true` | UTF-8 BOM 부착. **Excel 한글 깨짐 방지의 핵심.** BOM 을 거부하는 외부 시스템(TestRail·Jira import 등)에 넣을 때만 `false`. |
+| `excel` | `true` | 줄바꿈 `CRLF`. `false` 면 `LF`. BOM 여부와는 무관. |
+
+대시보드의 **CSV (Excel용·권장)** 버튼이 `bom: true` + `CRLF`, **CSV (BOM 없음·연동용)** 버튼이 `bom: false` + `LF` 입니다.
 컬럼: `TC_ID, 요구사항 ID, 요구사항 영역, 유형, 테스트 시나리오, 사전 조건, 수행 단계, 기대 결과, 중요도, 분류, 태그, 근거 문장, 원문 라인, 생성 방식`
 (양식 변경은 `src/csv.js` 의 `COLUMNS` 배열만 수정하면 됩니다.)
 
@@ -188,7 +193,8 @@ curl -s -X POST http://localhost:3000/api/generate-tc -H "Content-Type: applicat
 
 - **좌측** — 기획서 입력(⌘/Ctrl + Enter 로 생성), Pass/Fail/Edge 포함 여부, Claude 보강 토글, 샘플 불러오기 / 기획서 비교 탭
 - **우측** — TC 테이블(중요도별 좌측 색상 바 + 배지), 유형 칩 필터, 중요도·영역 셀렉트, 시나리오/기대결과 검색
-- **내보내기** — CSV / Excel(UTF-8 BOM) / JSON. 필터가 적용된 현재 목록만 내려갑니다.
+- **내보내기** — CSV(Excel용·권장) / CSV(BOM 없음·연동용) / JSON. 필터가 적용된 현재 목록만 내려갑니다.
+  Excel 로 열 때는 반드시 **CSV (Excel용·권장)** 을 사용하세요. 연동용 파일은 BOM 이 없어 Excel 이 CP949 로 잘못 해석해 한글이 깨집니다.
 - 비교 탭에서 실행하면 우측 표가 회귀 대상 TC 로 교체됩니다.
 
 ---
