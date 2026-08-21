@@ -1,0 +1,189 @@
+'use strict';
+
+/**
+ * 문서 요약 뷰 — dashboard.js 와 전역 스코프를 공유한다 (state / $ / esc / api / setStatus).
+ * index.html 에서 dashboard.js 보다 먼저 로드된다 (여기서는 함수만 선언한다).
+ */
+
+function renderSpecSummary() {
+  const box = $('#summaryView');
+  const s = state.specSummary;
+
+  if (!s) {
+    box.innerHTML = '<div class="summary-empty-box">기획서를 생성하면 핵심 요약이 표시됩니다.</div>';
+    return;
+  }
+
+  const ov = s.overview || {};
+  const ai = state.aiSummary;
+
+  const card = (title, body, cls) =>
+    `<section class="sum-card${cls ? ` ${cls}` : ''}"><h3>${title}</h3>${body}</section>`;
+  const li = (items) => (items || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  const tags = (items, cls) => (items || []).map((x) => `<span class="tag${cls ? ` ${cls}` : ''}">${esc(x)}</span>`).join('');
+
+  /* ------------------------------------------------------------- 개요 */
+  const stats = [
+    ['영역', ov.areas], ['요구사항', ov.requirements], ['조건 분기', ov.conditional],
+    ['수치 기준 보유', ov.withNumericRule], ['언어', (ov.languages || []).join('/')],
+  ].map(([k, v]) => `<span class="stat">${k} <b>${esc(v)}</b></span>`).join('');
+
+  const coverage = s.coverage
+    ? `<p class="sum-note">TC ${s.coverage.testCases}건 · 요구사항당 평균 ${s.coverage.perRequirement}건 · ${
+      s.coverage.uncovered.length ? `TC 미생성 ${s.coverage.uncovered.length}건` : '미커버 없음'}</p>`
+    : '';
+
+  const overviewCard = card('개요', `
+    <p class="sum-headline">${esc(s.headline)}</p>
+    <div class="sum-stats">${stats}</div>
+    ${(ov.topCategories || []).length
+      ? `<div class="sum-tags">${(ov.topCategories).map((c) => `<span class="tag">${esc(c.label)} ${c.count}</span>`).join('')}</div>`
+      : ''}
+    ${coverage}
+  `);
+
+  /* ---------------------------------------------------------- AI 요약 */
+  const aiCard = ai ? card('AI 요약 <span class="pill pill-ai">Claude</span>', `
+    <p class="sum-headline">${esc(ai.headline)}</p>
+    ${(ai.scope || []).length ? `<h4>다루는 범위</h4><ul class="sum-list">${li(ai.scope)}</ul>` : ''}
+    ${(ai.criticalFlows || []).length ? `<h4>핵심 흐름</h4>${ai.criticalFlows.map((f) => `
+      <div class="sum-flow"><b>${esc(f.name)}</b><p>${esc(f.why)}</p>
+        <p class="sum-watch">주의 — ${esc(f.watchOut)}</p></div>`).join('')}` : ''}
+    ${(ai.openQuestions || []).length ? `<h4>기획 확인 질문</h4><ul class="sum-list">${li(ai.openQuestions)}</ul>` : ''}
+    ${(ai.riskNotes || []).length ? `<h4>QA 유의사항</h4><ul class="sum-list">${li(ai.riskNotes)}</ul>` : ''}
+  `, 'sum-ai') : '';
+
+  /* ------------------------------------------------------ 핵심 요구사항 */
+  const keyCard = card('핵심 요구사항', (s.keyPoints || []).length
+    ? `<ol class="sum-key">${s.keyPoints.map((k) => `
+        <li>
+          <div class="sum-key-head">
+            <span class="mono">${esc(k.requirementId)}</span>
+            <span class="tag">${esc(k.area)}</span>
+            ${tags(k.constraints, 'tag-num')}
+          </div>
+          <p>${esc(k.text)}</p>
+          ${k.condition ? `<p class="sum-note">조건 — ${esc(k.condition)}</p>` : ''}
+        </li>`).join('')}</ol>`
+    : '<p class="detail-empty">추출된 요구사항이 없습니다.</p>');
+
+  /* ---------------------------------------------------------- 수치 기준 */
+  const numCard = card('수치 기준 <span class="sum-sub">검증 시 그대로 사용</span>', (s.numericRules || []).length
+    ? `<div class="sum-table-wrap"><table class="sum-table">
+        <thead><tr><th>구분</th><th>기준</th><th>영역</th><th>근거 문구</th></tr></thead>
+        <tbody>${s.numericRules.map((n) => `<tr>
+          <td><span class="tag">${esc(n.kind)}</span></td>
+          <td class="mono">${esc(n.criterion)}</td>
+          <td>${esc(n.area)}</td>
+          <td class="sum-src">${esc(n.source || n.text)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+    : '<p class="detail-empty">수치 기준이 발견되지 않았습니다.</p>');
+
+  /* ---------------------------------------------------------- 확인 필요 */
+  const riskCard = card('확인 필요 <span class="sum-sub">기획 문의 목록</span>', (s.risks || []).length
+    ? `<ul class="sum-risks">${s.risks.map((r) => `
+        <li>
+          <div class="sum-risk-head">
+            <span class="tag tag-warn">${esc(r.type)}</span>
+            <span class="sum-count">${r.count}건</span>
+            <b>${esc(r.message)}</b>
+          </div>
+          <p class="sum-q">${esc(r.question)}</p>
+          <p class="sum-note">${esc(r.items.map((i) => `${i.requirementId} (L${i.line})`).join(', '))}</p>
+        </li>`).join('')}</ul>`
+    : '<p class="detail-empty">모호 표현·누락 항목이 발견되지 않았습니다.</p>');
+
+  /* -------------------------------------------------------- 영역별 요점 */
+  const areaCard = card('영역별 요점', (s.byArea || []).map((a) => `
+    <div class="sum-area">
+      <div class="sum-area-head">
+        <b>${esc(a.area)}</b><span class="sum-count">${a.requirements}건</span>${tags(a.focus)}
+      </div>
+      <ul class="sum-list">${li(a.highlights)}</ul>
+    </div>`).join(''));
+
+  const aiDisabled = $('#optAI').disabled;
+  const actions = `<div class="sum-actions">
+      <button id="btnAiSummary" class="btn btn-sm"${aiDisabled ? ' disabled title="ANTHROPIC_API_KEY 가 설정되지 않았습니다."' : ''}>Claude 서술형 요약</button>
+      <button id="btnCopySummary" class="btn btn-sm btn-ghost">요약 마크다운 복사</button>
+    </div>`;
+
+  box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + areaCard;
+  $('#btnAiSummary').addEventListener('click', requestAiSummary);
+  $('#btnCopySummary').addEventListener('click', copySummaryText);
+}
+
+/** 요약을 마크다운으로 변환 (회의록·티켓 붙여넣기용) */
+function summaryToMarkdown() {
+  const s = state.specSummary;
+  if (!s) return '';
+
+  const out = ['# 기획서 요약', '', s.headline, ''];
+
+  if (state.aiSummary) {
+    out.push('## AI 요약', state.aiSummary.headline, '');
+    if ((state.aiSummary.openQuestions || []).length) {
+      out.push('### 기획 확인 질문', ...state.aiSummary.openQuestions.map((q) => `- ${q}`), '');
+    }
+  }
+
+  out.push('## 핵심 요구사항');
+  (s.keyPoints || []).forEach((k) => {
+    const nums = (k.constraints || []).length ? ` (${k.constraints.join(', ')})` : '';
+    out.push(`- [${k.area}] ${k.text}${nums}`);
+  });
+
+  out.push('', '## 수치 기준');
+  (s.numericRules || []).forEach((n) => out.push(`- ${n.kind} ${n.criterion} — ${n.area}`));
+
+  out.push('', '## 확인 필요');
+  (s.risks || []).forEach((r) => out.push(`- [${r.type}] ${r.message} (${r.count}건) → ${r.question}`));
+
+  return out.join('\n');
+}
+
+async function copySummaryText() {
+  try {
+    await navigator.clipboard.writeText(summaryToMarkdown());
+    setStatus('요약을 마크다운으로 복사했습니다.', 'ok');
+  } catch (err) {
+    setStatus(`복사 실패: ${err.message}`, 'error');
+  }
+}
+
+async function requestAiSummary() {
+  const specText = $('#specText').value;
+  if (!specText.trim()) {
+    setStatus('기획서 텍스트를 입력하세요.', 'error');
+    return;
+  }
+
+  const btn = $('#btnAiSummary');
+  btn.disabled = true;
+  btn.textContent = 'Claude 요약 생성 중…';
+
+  try {
+    const data = await api('/api/summarize', { specText, useAI: true });
+    state.specSummary = data.summary;
+    if (data.ai && data.ai.summary) {
+      state.aiSummary = data.ai.summary;
+      setStatus(`AI 요약 완료 (${data.ai.model})`, 'ok');
+    } else {
+      setStatus(`AI 요약 사용 불가: ${(data.ai && data.ai.error) || '알 수 없는 오류'}`, 'error');
+    }
+    renderSpecSummary();
+  } catch (err) {
+    setStatus(`AI 요약 실패: ${err.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Claude 서술형 요약';
+  }
+}
+
+function setView(view) {
+  state.view = view;
+  $$('.view-switch .tab').forEach((t) => t.classList.toggle('is-active', t.dataset.view === view));
+  $('#tcView').hidden = view !== 'tc';
+  $('.filters').hidden = view !== 'tc';
+  $('#summaryView').hidden = view !== 'summary';
+}

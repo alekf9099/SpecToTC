@@ -30,6 +30,18 @@
       </div>
 
       <div class="tab-panel is-active" data-panel="generate">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button"
+             aria-label="기획서 파일 업로드 — 클릭하거나 파일을 끌어다 놓으세요">
+          <input type="file" id="fileInput" hidden
+                 accept=".md,.markdown,.txt,.text,.pdf,.docx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+          <div class="dropzone-inner">
+            <span class="dropzone-icon" aria-hidden="true">↓</span>
+            <p class="dropzone-title">기획서 파일을 끌어다 놓으세요</p>
+            <p class="dropzone-hint">.md · .txt · .pdf · .docx — 또는 <span class="link">파일 선택</span></p>
+          </div>
+          <div id="fileChip" class="file-chip" hidden></div>
+        </div>
+
         <label class="field-label" for="specText">기획서 텍스트 (Markdown / SRS / 일반 문구)</label>
         <textarea id="specText" spellcheck="false"
           placeholder="예) 비밀번호는 8자 이상 20자 이하로 입력해야 한다.&#10;예) 결제 승인이 실패하면 주문을 확정하지 않고 실패 사유를 안내한다."></textarea>
@@ -67,13 +79,18 @@
 
     <!-- ------------------------------------------------ 우측: 결과 -->
     <section class="pane pane-result">
+      <div class="view-switch" role="tablist">
+        <button class="tab is-active" data-view="tc" role="tab">테스트케이스</button>
+        <button class="tab" data-view="summary" role="tab">문서 요약</button>
+      </div>
+
       <div class="result-head">
         <div id="summary" class="summary">
           <span class="summary-empty">아직 생성된 테스트케이스가 없습니다.</span>
         </div>
         <div class="export">
-          <button id="btnCsv" class="btn btn-sm" disabled>CSV</button>
-          <button id="btnExcel" class="btn btn-sm" disabled>Excel(CSV·UTF-8 BOM)</button>
+          <button id="btnExcel" class="btn btn-sm" disabled title="UTF-8 BOM + CRLF — Excel·구글시트에서 한글이 깨지지 않습니다.">CSV (Excel용·권장)</button>
+          <button id="btnCsv" class="btn btn-sm" disabled title="BOM 없는 LF CSV — TestRail/Jira 등 BOM 을 거부하는 시스템 연동용. Excel 로 열면 한글이 깨집니다.">CSV (BOM 없음·연동용)</button>
           <button id="btnJson" class="btn btn-sm btn-ghost" disabled>JSON</button>
         </div>
       </div>
@@ -97,28 +114,31 @@
         <input id="searchInput" class="input" type="search" placeholder="시나리오/기대결과 검색" />
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap" id="tcView">
         <table class="tc-table">
           <thead>
             <tr>
               <th class="col-id">TC_ID</th>
-              <th class="col-area">요구사항 영역</th>
               <th class="col-type">유형</th>
-              <th class="col-scenario">테스트 시나리오</th>
-              <th class="col-pre">사전 조건</th>
-              <th class="col-steps">수행 단계</th>
-              <th class="col-expected">기대 결과</th>
               <th class="col-priority">중요도</th>
+              <th class="col-area">영역</th>
+              <th class="col-scenario">테스트 시나리오</th>
+              <th class="col-toggle" aria-label="상세"></th>
             </tr>
           </thead>
           <tbody id="tcBody">
-            <tr class="empty-row"><td colspan="8">좌측에 기획서를 붙여넣고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
+            <tr class="empty-row"><td colspan="6">좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="summary-view" id="summaryView" hidden>
+        <div class="summary-empty-box">기획서를 생성하면 핵심 요약이 표시됩니다.</div>
       </div>
     </section>
   </main>
 
+  <script src="./summary-view.js"></script>
   <script src="./dashboard.js"></script>
 </body>
 </html>

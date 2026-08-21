@@ -73,14 +73,34 @@ test('샘플 기획서에서 Pass/Fail/Edge 3종을 모두 생성한다', () => 
   assert.ok(summary.byType['Edge Case'] > 0, 'Edge 없음');
 });
 
-test('모든 TC 가 필수 필드를 가진다', () => {
+test('모든 TC 가 읽기 가능한 필수 필드를 가진다', () => {
   const { testCases } = generateFromSpec(SAMPLE);
   for (const tc of testCases) {
     assert.match(tc.tc_id, /^TC-[PFE]-\d{3}$/, `TC_ID 형식 오류: ${tc.tc_id}`);
-    assert.ok(tc.area && tc.scenario && tc.precondition && tc.expected, `빈 필드: ${tc.tc_id}`);
-    assert.ok(Array.isArray(tc.steps) && tc.steps.length > 0, `steps 없음: ${tc.tc_id}`);
+    assert.ok(tc.area && tc.title && tc.objective, `빈 필드: ${tc.tc_id}`);
+    assert.match(tc.title, /^\[(정상|실패|경계)\] /, `제목에 유형 표기 없음: ${tc.title}`);
+    for (const field of ['precondition', 'steps', 'expected']) {
+      assert.ok(Array.isArray(tc[field]) && tc[field].length > 0, `${field} 비어 있음: ${tc.tc_id}`);
+      assert.ok(tc[field].every((x) => typeof x === 'string' && x.trim()), `${field} 항목 오류: ${tc.tc_id}`);
+    }
+    assert.ok(tc.requirement && tc.requirement.id && tc.requirement.text, `근거 요구사항 없음: ${tc.tc_id}`);
     assert.ok(['High', 'Med', 'Low'].includes(tc.priority), `중요도 오류: ${tc.priority}`);
   }
+});
+
+test('수행 단계는 "레이블: 내용" 형식이다', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+  const steps = testCases.flatMap((tc) => tc.steps);
+  const labeled = steps.filter((s) => /^(진입|조건 설정|입력|준비|실행|확인|상태|조작): /.test(s));
+  assert.ok(labeled.length / steps.length > 0.9, `레이블 없는 단계가 많음: ${steps.length - labeled.length}/${steps.length}`);
+});
+
+test('하위 호환 필드(scenario/requirement_id)가 유지된다', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+  const tc = testCases[0];
+  assert.equal(tc.scenario, tc.title);
+  assert.equal(tc.requirement_id, tc.requirement.id);
+  assert.equal(tc.source_text, tc.requirement.text);
 });
 
 test('TC_ID 는 중복되지 않는다', () => {
@@ -98,7 +118,7 @@ test('경계값 TC 는 경계 ±1 지점을 포함한다', () => {
   const { testCases } = generateFromSpec('- 비밀번호는 8자 이상으로 입력해야 한다.');
   const edge = testCases.find((tc) => tc.type === 'Edge Case' && tc.tags.includes('boundary'));
   assert.ok(edge, '경계값 TC 없음');
-  const joined = edge.steps.join(' ') + edge.expected;
+  const joined = edge.steps.join(' ') + edge.expected.join(' ');
   assert.ok(joined.includes('7글자') && joined.includes('8글자') && joined.includes('9글자'), joined);
 });
 
@@ -113,14 +133,71 @@ test('CSV 는 BOM/헤더/이스케이프를 포함한다', () => {
   const { testCases } = generateFromSpec(SAMPLE);
   const csv = toCsv(testCases);
   assert.ok(csv.startsWith('﻿'), 'BOM 없음');
-  assert.ok(csv.includes('TC_ID'), '헤더 없음');
+  assert.ok(csv.includes('TC_ID') && csv.includes('검증 목적'), '헤더 없음');
   assert.ok(csv.includes('"'), '따옴표 이스케이프 없음');
   assert.equal(csv.split('\r\n').filter(Boolean).length, testCases.length + 1);
+});
+
+test('excel:false(LF 줄바꿈)여도 BOM 은 유지된다', () => {
+  const { testCases } = generateFromSpec('- 비밀번호는 8자 이상이다.');
+  const csv = toCsv(testCases, { excel: false });
+  assert.ok(csv.startsWith('﻿'), 'LF 모드에서 BOM 이 빠졌다 — Excel 한글 깨짐 원인');
+  assert.ok(!csv.includes('\r\n'), 'LF 모드인데 CRLF 가 있다');
+});
+
+test('BOM 제거는 bom:false 로만 가능하다', () => {
+  const { testCases } = generateFromSpec('- 비밀번호는 8자 이상이다.');
+  assert.ok(!toCsv(testCases, { bom: false }).startsWith('﻿'));
 });
 
 test('CSV 셀에 수식 인젝션이 들어가지 않는다', () => {
   const csv = toCsv([{ tc_id: '=cmd|calc', area: 'a', type: 'Pass', scenario: 's', precondition: 'p', steps: ['x'], expected: 'e', priority: 'Low' }]);
   assert.ok(csv.includes("'=cmd|calc"), csv);
+});
+
+/* ------------------------------------------------------------- 요약 */
+
+const { summarizeSpec } = require('../src/summary');
+
+test('요약은 개요·핵심 요구사항·수치 기준을 추출한다', () => {
+  const s = summarizeSpec(SAMPLE);
+  assert.match(s.headline, /영역/);
+  assert.ok(s.overview.requirements > 10);
+  assert.ok(s.overview.languages.includes('ko') && s.overview.languages.includes('en'));
+  assert.ok(s.keyPoints.length > 0 && s.keyPoints.length <= 8);
+  assert.ok(s.keyPoints[0].score >= s.keyPoints[s.keyPoints.length - 1].score, '점수 내림차순 아님');
+  assert.ok(s.byArea.length >= 4);
+
+  const criteria = s.numericRules.map((n) => n.criterion);
+  assert.ok(criteria.includes('8글자 이상'), criteria.join(' / '));
+  assert.ok(criteria.includes('10 MB 이하'), '영문 단위는 띄어쓰기: ' + criteria.join(' / '));
+  assert.ok(!criteria.some((c) => /자까지/.test(c)), '단위에 비교어가 섞임: ' + criteria.join(' / '));
+});
+
+test('요약은 모호 표현·누락 기준을 확인 필요 항목으로 묶는다', () => {
+  const s = summarizeSpec([
+    '## 알림',
+    '- 발송 실패 시 재시도한다.',
+    '- 목록은 적절히 정렬한다.',
+    '- 응답은 빠르게 처리한다.',
+  ].join('\n'));
+
+  const types = s.risks.map((r) => r.type);
+  assert.ok(types.includes('기준 누락'), '재시도 횟수 누락 미검출: ' + types.join(','));
+  assert.ok(types.includes('모호 표현'), '모호 표현 미검출: ' + types.join(','));
+  for (const r of s.risks) {
+    assert.ok(r.count >= 1 && r.items.length === r.count, '건수 집계 오류');
+    assert.ok(r.question && r.question.length > 5, '확인 질문 없음');
+  }
+});
+
+test('요약 커버리지는 TC 미생성 요구사항을 알려준다', () => {
+  const spec = '- 비밀번호는 8자 이상이다.';
+  const { testCases, requirements } = generateFromSpec(spec);
+  const s = summarizeSpec({ requirements }, { testCases });
+  assert.equal(s.coverage.testCases, testCases.length);
+  assert.equal(s.coverage.uncovered.length, 0);
+  assert.ok(s.coverage.perRequirement > 1);
 });
 
 /* --------------------------------------------------------------- diff */
@@ -143,6 +220,84 @@ test('동일 문서 비교 시 변경이 없다', () => {
   assert.equal(d.summary.added, 0);
   assert.equal(d.summary.removed, 0);
   assert.equal(d.summary.modified, 0);
+});
+
+/* ------------------------------------------------------------ 파일 추출 */
+
+const { extractText } = require('../src/extract');
+const { makeDocx, makePdf } = require('./fixtures');
+
+test('.docx 에서 제목·목록·표·이스케이프를 복원한다', async () => {
+  const { text, meta } = await extractText(makeDocx(), 'spec.docx');
+  assert.equal(meta.kind, 'docx');
+  assert.ok(text.includes('# 회원 서비스 기획서'), '제목1 → # 변환 실패');
+  assert.ok(text.includes('## 로그인'), '제목2 → ## 변환 실패');
+  assert.ok(text.includes('- 비밀번호는 8자 이상 20자 이하로 입력해야 한다.'), '목록 → - 변환 실패');
+  assert.ok(/서버 응답이 3초 이내 에 오지 않으면/.test(text), '분리된 run 병합 실패');
+  assert.ok(text.includes('| 항목 | 결제 승인이 실패하면'), '표 → 파이프 행 변환 실패');
+  assert.ok(text.includes('AT&T 문자 <태그>'), 'XML 엔티티 복원 실패');
+});
+
+test('.docx 추출 결과로 TC 가 생성된다 (제목이 영역으로 잡힌다)', async () => {
+  const { text } = await extractText(makeDocx(), 'spec.docx');
+  const { testCases } = generateFromSpec(text);
+  assert.ok(testCases.length > 5, `TC 부족: ${testCases.length}`);
+  assert.ok(testCases.some((tc) => tc.area === '로그인'), '영역 인식 실패: ' + [...new Set(testCases.map((t) => t.area))].join(','));
+  assert.ok(testCases.some((tc) => tc.tags.includes('boundary')), '경계값 TC 없음');
+});
+
+test('.pdf 에서 텍스트를 추출한다', async () => {
+  const pdf = makePdf(['Password must be at least 8 characters.', 'If payment fails, do not confirm the order.']);
+  const { text, meta } = await extractText(pdf, 'spec.pdf');
+  assert.equal(meta.kind, 'pdf');
+  assert.equal(meta.pages, 1);
+  assert.match(text, /at least 8 characters/);
+  assert.match(text, /payment fails/);
+});
+
+test('PDF 머리글·바닥글 반복 줄을 제거한다', () => {
+  const { stripPageChrome, isChrome } = require('../src/extract/pdf');
+
+  assert.equal(isChrome('1 / 4'), true);
+  assert.equal(isChrome('- 3 -'), true);
+  assert.equal(isChrome('https://center.example.com/post/view/abc 1/4'), true);
+  assert.equal(isChrome('26. 6. 23. 오전 11:39 [QA 완료 보고서]'), true);
+  assert.equal(isChrome('비밀번호는 8자 이상이다.'), false);
+
+  const pages = [
+    ['[QA 보고서] 프로젝트명', '비밀번호는 8자 이상이다.', '1 / 2'],
+    ['[QA 보고서] 프로젝트명', '결제 실패 시 주문을 확정하지 않는다.', '2 / 2'],
+  ];
+  const cleaned = stripPageChrome(pages);
+  assert.deepEqual(cleaned, [
+    ['비밀번호는 8자 이상이다.'],
+    ['결제 실패 시 주문을 확정하지 않는다.'],
+  ]);
+});
+
+test('확장자가 없어도 매직 넘버로 형식을 판별한다', async () => {
+  const pdf = await extractText(makePdf(['Retry up to 3 times.']), 'unknown-name');
+  assert.equal(pdf.meta.kind, 'pdf');
+  const docx = await extractText(makeDocx(), 'unknown-name');
+  assert.equal(docx.meta.kind, 'docx');
+});
+
+test('CP949 로 저장된 텍스트 파일을 디코딩한다', async () => {
+  // "- 비밀번호는 8자 이상이다." 를 CP949 로 인코딩한 바이트
+  const cp949 = Buffer.from([
+    0x2d, 0x20, 0xba, 0xf1, 0xb9, 0xd0, 0xb9, 0xf8, 0xc8, 0xa3, 0xb4, 0xc2,
+    0x20, 0x38, 0xc0, 0xda, 0x20, 0xc0, 0xcc, 0xbb, 0xf3, 0xc0, 0xcc, 0xb4, 0xd9, 0x2e,
+  ]);
+  const { text, meta } = await extractText(cp949, 'spec.txt');
+  assert.equal(meta.kind, 'text');
+  assert.ok(text.includes('비밀번호'), `디코딩 실패: ${text}`);
+  assert.match(meta.encoding, /euc-kr/);
+});
+
+test('지원하지 않는 형식은 명확한 오류를 낸다', async () => {
+  await assert.rejects(() => extractText(Buffer.from('x'), 'spec.hwp'), /한글\(\.hwp/);
+  await assert.rejects(() => extractText(Buffer.from('x'), 'spec.doc'), /\.docx 로 다시 저장/);
+  await assert.rejects(() => extractText(Buffer.alloc(0), 'a.md'), /비어 있습니다/);
 });
 
 /* ---------------------------------------------------------------- HTTP */
@@ -195,6 +350,19 @@ test('POST /api/export-csv — specText 만으로도 CSV 반환', () => withServ
   assert.ok(text.includes('TC_ID'));
 }));
 
+test('POST /api/export-csv — 응답 바이트가 UTF-8 BOM 으로 시작한다', () => withServer(async (base) => {
+  const res = await post(base, '/api/export-csv', { specText: SAMPLE });
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.equal(buf.subarray(0, 3).toString('hex'), 'efbbbf', 'BOM 없음 — Excel 에서 한글이 깨진다');
+  assert.match(buf.toString('utf8'), /요구사항 영역/, '한글 헤더가 UTF-8 로 디코딩되지 않는다');
+}));
+
+test('POST /api/export-csv — bom:false 일 때만 BOM 이 빠진다', () => withServer(async (base) => {
+  const res = await post(base, '/api/export-csv', { specText: SAMPLE, bom: false });
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.notEqual(buf.subarray(0, 3).toString('hex'), 'efbbbf');
+}));
+
 test('POST /api/diff-check', () => withServer(async (base) => {
   const res = await post(base, '/api/diff-check', {
     oldText: '- 비밀번호는 8자 이상이다.',
@@ -203,6 +371,43 @@ test('POST /api/diff-check', () => withServer(async (base) => {
   const data = await res.json();
   assert.equal(res.status, 200);
   assert.equal(data.summary.modified, 1);
+}));
+
+test('POST /api/extract-text — .docx 업로드', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/extract-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent('로그인 기획서.docx') },
+    body: makeDocx(),
+  });
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.meta.kind, 'docx');
+  assert.equal(data.meta.fileName, '로그인 기획서.docx', '한글 파일명 복원 실패');
+  assert.ok(data.specText.includes('## 로그인'));
+}));
+
+test('POST /api/extract-text — 빈 본문은 400', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/extract-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+  });
+  assert.equal(res.status, 400);
+}));
+
+test('POST /api/summarize', () => withServer(async (base) => {
+  const res = await post(base, '/api/summarize', { specText: SAMPLE, topN: 5 });
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.summary.keyPoints.length, 5);
+  assert.ok(data.summary.numericRules.length > 5);
+  assert.equal(data.ai.enabled, false);
+}));
+
+test('POST /api/generate-tc 응답에 specSummary 가 포함된다', () => withServer(async (base) => {
+  const res = await post(base, '/api/generate-tc', { specText: SAMPLE });
+  const data = await res.json();
+  assert.ok(data.specSummary && data.specSummary.headline);
+  assert.ok(data.specSummary.coverage.testCases === data.testCases.length);
 }));
 
 test('없는 API 경로는 404 JSON', () => withServer(async (base) => {
