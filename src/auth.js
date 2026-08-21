@@ -7,9 +7,14 @@
  * HttpOnly 쿠키를 발급한다. 의존성(세션 스토어·쿠키 파서)을 쓰지 않으므로
  * 서버리스에서 인스턴스가 새로 떠도 쿠키 검증이 그대로 동작한다.
  *
+ * 로그인은 기본값이 아니라 선택 기능이다. SPECTOTC_PASSWORD 를 넣으면 켜지고,
+ * 비워두면(기본) 인증 없이 열린다.
+ *
  * 환경 변수
- *   SPECTOTC_PASSWORD        팀 공용 비밀번호. 없으면 로컬은 인증 없이 열리고,
- *                            Vercel 배포에서는 모든 요청을 503 으로 막는다.
+ *   SPECTOTC_PASSWORD        팀 공용 비밀번호. 설정하면 로그인 화면이 활성화된다.
+ *                            비워두면 인증 없이 열린다(기본).
+ *   SPECTOTC_REQUIRE_AUTH    true 면 비밀번호가 없을 때 서비스를 503 으로 잠근다.
+ *                            (인증을 반드시 켜야 하는 환경에서만 쓰는 안전장치)
  *   SPECTOTC_SESSION_SECRET  쿠키 서명 키. 없으면 비밀번호에서 파생한다
  *                            (비밀번호를 바꾸면 기존 세션이 모두 무효가 된다).
  *   SPECTOTC_SESSION_HOURS   세션 유효 시간 (기본 12)
@@ -29,17 +34,20 @@ function isEnabled() {
   return password().length > 0;
 }
 
-/** Vercel 등 배포 환경인지 — 비밀번호 없이 배포되는 사고를 막기 위해 본다. */
-function isDeployed() {
-  return Boolean(process.env.VERCEL || process.env.VERCEL_ENV || process.env.SPECTOTC_FORCE_AUTH);
+/**
+ * 인증을 필수로 요구하는 환경인지 (SPECTOTC_REQUIRE_AUTH=true).
+ * 기본값은 false — 로그인 없이 열어두는 것이 기본 동작이다.
+ */
+function isRequired() {
+  return process.env.SPECTOTC_REQUIRE_AUTH === 'true';
 }
 
 /**
- * 비밀번호 없이 배포된 상태인지. true 면 앱은 모든 요청을 503 으로 막는다.
- * (열린 채로 사내 기획서를 받는 것보다 아예 막는 편이 안전하다.)
+ * "인증을 필수로 켜라고 했는데 비밀번호가 없는" 설정 오류 상태.
+ * 이때만 앱이 503 으로 잠긴다.
  */
 function isMisconfigured() {
-  return isDeployed() && !isEnabled();
+  return isRequired() && !isEnabled();
 }
 
 function sessionHours() {
@@ -149,7 +157,7 @@ function isAuthenticated(req) {
 module.exports = {
   COOKIE_NAME,
   isEnabled,
-  isDeployed,
+  isRequired,
   isMisconfigured,
   sessionHours,
   verifyPassword,

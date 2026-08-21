@@ -553,11 +553,26 @@ test('로그인 화면과 health 는 인증 없이 열린다', () => withServer(
   assert.equal(health.upload, undefined, '미인증 상태에 상세 정보 노출');
 }, authEnv()));
 
-test('비밀번호 없이 배포되면 503 으로 잠근다', () => withServer(async (base) => {
+test('기본값은 인증 없이 열림 (비밀번호 미설정)', () => withServer(async (base) => {
+  const health = await (await fetch(base + '/api/health')).json();
+  assert.equal(health.auth.required, false);
+  assert.equal(health.auth.authenticated, true);
+
+  // 로그인 없이 바로 생성이 된다
+  const res = await post(base, '/api/generate-tc', { specText: '- 비밀번호는 8자 이상이다.' });
+  assert.equal(res.status, 200);
+  assert.ok((await res.json()).testCases.length > 0);
+
+  // 화면도 리다이렉트 없이 열린다
+  const page = await fetch(base + '/', { redirect: 'manual' });
+  assert.equal(page.status, 200);
+}, { SPECTOTC_PASSWORD: undefined, SPECTOTC_REQUIRE_AUTH: undefined }));
+
+test('인증을 필수로 켰는데 비밀번호가 없으면 503 으로 잠근다', () => withServer(async (base) => {
   const res = await fetch(base + '/api/health');
   assert.equal(res.status, 503);
-  assert.match((await res.json()).error, /SPECTOTC_PASSWORD/);
-}, { SPECTOTC_PASSWORD: undefined, SPECTOTC_FORCE_AUTH: '1' }));
+  assert.match((await res.json()).error, /SPECTOTC_REQUIRE_AUTH/);
+}, { SPECTOTC_PASSWORD: undefined, SPECTOTC_REQUIRE_AUTH: 'true' }));
 
 test('로그인 시도는 레이트리밋에 걸린다', () => withServer(async (base) => {
   ratelimit.reset();

@@ -96,13 +96,14 @@ function createApp() {
     next();
   });
 
-  /* ------------------- 비밀번호 없이 배포된 경우 전면 차단 (사고 방지) */
+  /* ---- 인증을 필수로 요구했는데(SPECTOTC_REQUIRE_AUTH=true) 비밀번호가 없을 때 */
+  // 기본 동작은 "인증 없이 열림" 이다. 이 잠금은 명시적으로 옵트인한 경우에만 걸린다.
   app.use((req, res, next) => {
     if (!auth.isMisconfigured()) return next();
     res.status(503).json({
       ok: false,
-      error: '접속 비밀번호(SPECTOTC_PASSWORD)가 설정되지 않아 서비스를 잠갔습니다. '
-        + '배포 환경 변수에 비밀번호를 등록한 뒤 재배포해 주세요.',
+      error: 'SPECTOTC_REQUIRE_AUTH=true 인데 SPECTOTC_PASSWORD 가 없어 서비스를 잠갔습니다. '
+        + '비밀번호를 등록하거나 SPECTOTC_REQUIRE_AUTH 를 해제해 주세요.',
     });
   });
 
