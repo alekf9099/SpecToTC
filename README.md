@@ -21,14 +21,12 @@ npm start
 
 브라우저에서 <http://localhost:3000> → **샘플 불러오기** → **테스트케이스 생성**.
 
-로그인·Claude 보강을 쓰려면 `.env` 를 만들고 실행합니다.
+로그인은 기본적으로 **비활성**입니다(사내 도구 기준). Claude 보강이나 로그인을 켜려면 `.env` 를 만들고 실행합니다.
 
 ```bash
-cp .env.example .env   # SPECTOTC_PASSWORD / ANTHROPIC_API_KEY 입력
+cp .env.example .env   # ANTHROPIC_API_KEY / (선택) SPECTOTC_PASSWORD 입력
 npm run start:env
 ```
-
-`SPECTOTC_PASSWORD` 를 비워두면 로컬에서는 인증 없이 열립니다. **배포 환경에서는 반드시 설정해야 하며, 없으면 서비스가 503으로 잠깁니다.**
 
 테스트:
 
@@ -64,48 +62,51 @@ SpecToTC/
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js / summary-view.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (56 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (57 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
 ---
 
-## 3. 접근 제어 (로그인)
+## 3. 접근 제어 — 기본은 인증 없음
 
-사내 기획서를 다루므로 **팀 공용 비밀번호 + 서명된 세션 쿠키** 방식의 로그인을 둡니다. 계정 개념은 없습니다.
+사내에서 쓰는 도구라 **기본값은 로그인 없이 열림**입니다. 필요해지면 환경 변수 하나로 켤 수 있습니다.
 
 ```bash
-# .env
+# .env — 이 값을 넣는 순간 로그인 화면이 활성화된다
 SPECTOTC_PASSWORD=팀에서_정한_비밀번호
 SPECTOTC_SESSION_HOURS=12          # 선택, 기본 12시간
 SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서 파생
 ```
 
-| 상황 | 동작 |
+| 설정 | 동작 |
 | --- | --- |
-| `SPECTOTC_PASSWORD` 설정됨 | 로그인 화면(`/login.html`)이 활성화되고, 미인증 요청은 화면은 302, API는 401 |
-| 로컬에서 비워둠 | 인증 없이 열림 (개발 편의). 서버 시작 배너에 비활성 상태가 표시됩니다 |
-| **배포 환경에서 비워둠** | **서비스 전체를 503으로 잠금** — 열린 채로 사내 문서를 받는 사고를 막기 위함 |
+| `SPECTOTC_PASSWORD` 비움 **(기본)** | 인증 없이 열림. 서버 배너에 `로그인 ▶ 비활성` 표시 |
+| `SPECTOTC_PASSWORD` 설정 | 로그인 화면(`/login.html`) 활성화. 미인증 요청은 화면 302 / API 401 |
+| `SPECTOTC_REQUIRE_AUTH=true` 인데 비밀번호 없음 | 설정 오류로 보고 503 (인증을 반드시 켜야 하는 환경용 안전장치) |
 
-동작 방식:
+로그인을 켰을 때의 동작:
 
-- 비밀번호는 SHA-256 해시를 `timingSafeEqual`로 비교합니다 (타이밍 공격 방지, 길이 노출 없음)
-- 세션은 HMAC-SHA256으로 서명한 토큰을 **HttpOnly · SameSite=Lax · Secure(HTTPS)** 쿠키로 발급합니다. JS에서 읽을 수 없습니다
-- 세션 스토어가 없어 서버리스에서 인스턴스가 새로 떠도 검증이 그대로 동작합니다
-- 비밀번호를 교체하면 파생 키가 바뀌어 **기존 세션이 전부 무효**가 됩니다
+- 비밀번호는 SHA-256 해시를 `timingSafeEqual`로 비교 (타이밍 공격 방지, 길이 노출 없음)
+- 세션은 HMAC-SHA256 서명 토큰을 **HttpOnly · SameSite=Lax · Secure(HTTPS)** 쿠키로 발급. JS에서 읽을 수 없음
+- 세션 스토어가 없어 서버리스에서 인스턴스가 새로 떠도 검증이 그대로 동작
+- 비밀번호를 교체하면 파생 서명 키가 바뀌어 기존 세션이 전부 무효
 - `POST /api/login` / `POST /api/logout`, 우측 상단 `로그아웃` 버튼
 
-### 같이 들어간 보호 장치
+### 로그인 없이 운영할 때 알아둘 것
+
+인증이 없으면 **URL을 아는 사람은 누구나 사용**할 수 있습니다. 사내 도구로는 흔한 선택이지만, 아래는 그래서 더 중요합니다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 레이트리밋 | 로그인 10회/15분, 생성·요약·CSV 60회/분, 업로드 20회/분, **AI 보강 12회/시간** |
-| AI 별도 잠금 | `SPECTOTC_AI_ENABLED=false`로 기능 차단, `SPECTOTC_AI_TOKEN` 설정 시 `X-AI-Token` 헤더 일치 필요 |
+| 레이트리밋 | 생성·요약·CSV 60회/분, 업로드 20회/분, **AI 보강 12회/시간**, 로그인 10회/15분 |
+| **AI 키 노출 주의** | `ANTHROPIC_API_KEY`를 등록하면 아무나 AI 호출로 크레딧을 소진시킬 수 있습니다. 인증 없이 배포한다면 `SPECTOTC_AI_TOKEN`을 함께 설정하거나 `SPECTOTC_AI_ENABLED=false`로 두는 편이 안전합니다 |
 | 검색 엔진 차단 | 모든 응답에 `X-Robots-Tag: noindex, nofollow, noarchive` + `robots.txt` + 페이지 meta |
 | 보안 헤더 | `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` |
 | 로그 위생 | 기획서 본문은 로그에 남기지 않고 메타데이터(형식·바이트·문자 수·처리 시간)만 기록. JSON 파싱 오류 메시지에 섞여 들어오는 본문 조각도 응답·로그에서 제거 |
 
 > ⚠️ 레이트리밋은 인메모리 고정 창 방식입니다. Vercel 함수는 인스턴스가 여러 개 뜨므로 카운터가 인스턴스별로만 유지되고, 동시 인스턴스가 N개면 실효 한도도 N배가 됩니다. 실수·단순 남용·비용 폭증을 막는 1차 방어선으로만 보고, 엄격한 제한이 필요하면 Upstash Redis 같은 외부 저장소로 교체해야 합니다.
+
 
 ---
 
@@ -329,8 +330,9 @@ git push -u origin main
 
 1. [vercel.com/new](https://vercel.com/new) → 이 저장소 Import
 2. Framework Preset: **Other** (`vercel.json` 이 이미 지정)
-3. **Project Settings → Environment Variables → `SPECTOTC_PASSWORD` 등록** (필수 — 없으면 서비스가 503으로 잠깁니다)
-4. Claude 보강을 쓸 경우 `ANTHROPIC_API_KEY` 도 등록 후 Redeploy
+3. Claude 보강을 쓸 경우 Project Settings → Environment Variables → `ANTHROPIC_API_KEY` 등록 후 Redeploy
+   · 인증 없이 배포하면 아무나 AI 호출을 보낼 수 있으니, 함께 `SPECTOTC_AI_TOKEN` 을 설정하거나 `SPECTOTC_AI_ENABLED=false` 로 두는 편이 안전합니다
+   · 로그인을 켜려면 `SPECTOTC_PASSWORD` 를 등록합니다 (선택)
 4. Deploy → `https://<프로젝트>.vercel.app` 에서 대시보드, `/api/health` 로 상태 확인
 
 배포 구성 요약:
@@ -366,5 +368,5 @@ git push -u origin main
 - PDF 는 레이아웃 정보를 잃습니다. 2단 편집·표 중심 문서는 줄 순서가 섞일 수 있어, 추출 결과를 텍스트 영역에서 한 번 확인하는 것을 권합니다.
 - 생성된 TC 는 **초안**입니다. QA 가 검토·병합하는 것을 전제로 설계했고, 그래서 모든 TC 에 `requirement.text` / `requirement.line`(근거 문장)을 함께 담습니다.
 - Diff 는 문장 유사도 기반이라 문단을 크게 재구성한 개정판에서는 `added` + `removed` 로 잡힐 수 있습니다(`threshold` 조정 가능).
-- 인증은 **팀 공용 비밀번호 하나**입니다. 개인별 계정·권한 구분·접속 감사 로그가 필요하면 SSO(예: Vercel Authentication, Cloudflare Access) 앞단에 두는 편이 낫습니다.
+- **기본은 인증 없음**입니다 — URL 을 아는 사람은 누구나 사용할 수 있습니다. 로그인을 켜도 팀 공용 비밀번호 하나이므로, 개인별 계정·권한 구분·접속 감사 로그가 필요하면 SSO(예: Vercel Authentication, Cloudflare Access) 앞단에 두는 편이 낫습니다.
 - 레이트리밋은 서버리스 인스턴스별로만 동작합니다(위 3장 참고).
