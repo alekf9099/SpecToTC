@@ -27,12 +27,22 @@ function setStatus(message, kind) {
   box.className = 'status' + (kind ? ` is-${kind}` : '');
 }
 
+/** 세션이 끊기면 현재 경로를 물고 로그인 화면으로 이동한다. */
+function redirectToLogin() {
+  const next = encodeURIComponent(location.pathname + location.search);
+  location.replace('/login.html?next=' + next);
+}
+
 async function api(path, body) {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error('세션이 만료되었습니다. 다시 로그인해 주세요.');
+  }
   const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
   if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -198,6 +208,10 @@ async function exportCsv(opts = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ testCases: visibleCases(), excel: opts.excel !== false, bom: opts.bom !== false }),
     });
+    if (res.status === 401) {
+      redirectToLogin();
+      return;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     triggerDownload(blob, fileNameFromHeader(res) || 'spectotc-tc.csv');
@@ -267,6 +281,10 @@ async function uploadFile(file) {
       },
       body: file,
     });
+    if (res.status === 401) {
+      redirectToLogin();
+      return;
+    }
     const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
     if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
 
@@ -439,6 +457,14 @@ function bind() {
   $('#btnCsv').addEventListener('click', () => exportCsv({ excel: false, bom: false }));
   $('#btnJson').addEventListener('click', exportJson);
 
+  $('#btnLogout').addEventListener('click', async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } finally {
+      location.replace('/login.html');
+    }
+  });
+
   $$('.tabs .tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       $$('.tabs .tab').forEach((t) => t.classList.toggle('is-active', t === tab));
@@ -467,12 +493,22 @@ async function loadHealth() {
   try {
     const res = await fetch('/api/health');
     const data = await res.json();
+    // 인증이 필요한 서버인데 세션이 없으면 바로 로그인 화면으로
+    if (data.auth && data.auth.required && !data.auth.authenticated) {
+      redirectToLogin();
+      return;
+    }
+    $('#btnLogout').hidden = !(data.auth && data.auth.required);
+
+    const ai = data.ai || {};
     const aiBadge = $('#aiBadge');
-    aiBadge.textContent = data.ai.enabled ? `AI 보강 사용 가능 · ${data.ai.model}` : 'AI 보강 비활성 (규칙 엔진)';
-    aiBadge.className = 'badge ' + (data.ai.enabled ? 'badge-ok' : 'badge-muted');
-    $('#healthBadge').textContent = `v${data.version} · ${data.node}`;
+    aiBadge.textContent = ai.enabled
+      ? `AI 보강 사용 가능 · ${ai.model}${ai.tokenRequired ? ' (토큰 필요)' : ''}`
+      : 'AI 보강 비활성 (규칙 엔진)';
+    aiBadge.className = 'badge ' + (ai.enabled ? 'badge-ok' : 'badge-muted');
+    $('#healthBadge').textContent = `v${data.version}${data.node ? ' · ' + data.node : ''}`;
     $('#healthBadge').className = 'badge badge-ok';
-    if (!data.ai.enabled) $('#optAI').disabled = true;
+    if (!ai.enabled) $('#optAI').disabled = true;
   } catch (err) {
     $('#aiBadge').textContent = '서버 연결 실패';
     $('#aiBadge').className = 'badge badge-off';

@@ -10,12 +10,29 @@
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    }
   ],
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        }
+      ]
+    },
+    {
       "source": "/api/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
     }
   ]
 }

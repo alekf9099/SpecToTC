@@ -21,12 +21,14 @@ npm start
 
 브라우저에서 <http://localhost:3000> → **샘플 불러오기** → **테스트케이스 생성**.
 
-Claude 보강까지 쓰려면:
+로그인·Claude 보강을 쓰려면 `.env` 를 만들고 실행합니다.
 
 ```bash
-cp .env.example .env   # .env 에 ANTHROPIC_API_KEY 입력
+cp .env.example .env   # SPECTOTC_PASSWORD / ANTHROPIC_API_KEY 입력
 npm run start:env
 ```
+
+`SPECTOTC_PASSWORD` 를 비워두면 로컬에서는 인증 없이 열립니다. **배포 환경에서는 반드시 설정해야 하며, 없으면 서비스가 503으로 잠깁니다.**
 
 테스트:
 
@@ -43,7 +45,9 @@ SpecToTC/
 ├── server.js                 로컬 실행 엔트리 (express listen)
 ├── api/index.js              Vercel Serverless Function 엔트리 (동일 앱 재사용)
 ├── src/
-│   ├── app.js                Express 앱 + REST 라우트
+│   ├── app.js                Express 앱 + REST 라우트 (인증 게이트·레이트리밋 포함)
+│   ├── auth.js               공용 비밀번호 + HMAC 서명 세션 쿠키
+│   ├── ratelimit.js          의존성 없는 인메모리 레이트리밋
 │   ├── engine/
 │   │   ├── dictionary.js     다국어(한/영) 키워드·비교연산자·단위 사전  ← 규칙 튜닝 지점
 │   │   ├── parser.js         문서 → 요구사항/조건절/경계값 파싱
@@ -58,15 +62,54 @@ SpecToTC/
 │   ├── csv.js                CSV 변환 (UTF-8 BOM, 수식 인젝션 방지)
 │   ├── diff.js               기획서 변경분 추출 + 회귀 TC 생성
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
-├── public/                   대시보드 (index.html / dashboard.css / dashboard.js / summary-view.js)
+├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js / summary-view.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (43 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (56 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
 ---
 
-## 3. 입력 — 붙여넣기 또는 파일 업로드
+## 3. 접근 제어 (로그인)
+
+사내 기획서를 다루므로 **팀 공용 비밀번호 + 서명된 세션 쿠키** 방식의 로그인을 둡니다. 계정 개념은 없습니다.
+
+```bash
+# .env
+SPECTOTC_PASSWORD=팀에서_정한_비밀번호
+SPECTOTC_SESSION_HOURS=12          # 선택, 기본 12시간
+SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서 파생
+```
+
+| 상황 | 동작 |
+| --- | --- |
+| `SPECTOTC_PASSWORD` 설정됨 | 로그인 화면(`/login.html`)이 활성화되고, 미인증 요청은 화면은 302, API는 401 |
+| 로컬에서 비워둠 | 인증 없이 열림 (개발 편의). 서버 시작 배너에 비활성 상태가 표시됩니다 |
+| **배포 환경에서 비워둠** | **서비스 전체를 503으로 잠금** — 열린 채로 사내 문서를 받는 사고를 막기 위함 |
+
+동작 방식:
+
+- 비밀번호는 SHA-256 해시를 `timingSafeEqual`로 비교합니다 (타이밍 공격 방지, 길이 노출 없음)
+- 세션은 HMAC-SHA256으로 서명한 토큰을 **HttpOnly · SameSite=Lax · Secure(HTTPS)** 쿠키로 발급합니다. JS에서 읽을 수 없습니다
+- 세션 스토어가 없어 서버리스에서 인스턴스가 새로 떠도 검증이 그대로 동작합니다
+- 비밀번호를 교체하면 파생 키가 바뀌어 **기존 세션이 전부 무효**가 됩니다
+- `POST /api/login` / `POST /api/logout`, 우측 상단 `로그아웃` 버튼
+
+### 같이 들어간 보호 장치
+
+| 항목 | 내용 |
+| --- | --- |
+| 레이트리밋 | 로그인 10회/15분, 생성·요약·CSV 60회/분, 업로드 20회/분, **AI 보강 12회/시간** |
+| AI 별도 잠금 | `SPECTOTC_AI_ENABLED=false`로 기능 차단, `SPECTOTC_AI_TOKEN` 설정 시 `X-AI-Token` 헤더 일치 필요 |
+| 검색 엔진 차단 | 모든 응답에 `X-Robots-Tag: noindex, nofollow, noarchive` + `robots.txt` + 페이지 meta |
+| 보안 헤더 | `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` |
+| 로그 위생 | 기획서 본문은 로그에 남기지 않고 메타데이터(형식·바이트·문자 수·처리 시간)만 기록. JSON 파싱 오류 메시지에 섞여 들어오는 본문 조각도 응답·로그에서 제거 |
+
+> ⚠️ 레이트리밋은 인메모리 고정 창 방식입니다. Vercel 함수는 인스턴스가 여러 개 뜨므로 카운터가 인스턴스별로만 유지되고, 동시 인스턴스가 N개면 실효 한도도 N배가 됩니다. 실수·단순 남용·비용 폭증을 막는 1차 방어선으로만 보고, 엄격한 제한이 필요하면 Upstash Redis 같은 외부 저장소로 교체해야 합니다.
+
+---
+
+## 4. 입력 — 붙여넣기 또는 파일 업로드
 
 | 형식 | 처리 방식 |
 |---|---|
@@ -82,9 +125,9 @@ SpecToTC/
 
 ---
 
-## 4. 규칙 엔진이 감지하는 것
+## 5. 규칙 엔진이 감지하는 것
 
-### 4.1 조건문 패턴
+### 5.1 조건문 패턴
 
 | 유형 | 한글 | 영문 |
 |---|---|---|
@@ -96,13 +139,13 @@ SpecToTC/
 그 외 카테고리: 인증/권한, 입력 검증, 오류 처리, 결제, 개인정보, 삭제, 성능, 화면 이동, 노출, 목록/검색, 파일, 알림, 상태 저장.
 전체 사전은 [`src/engine/dictionary.js`](src/engine/dictionary.js) 한 파일에 모여 있어 사내 용어를 여기에 추가하면 바로 반영됩니다.
 
-### 4.2 생성 규칙
+### 5.2 생성 규칙
 
 - **[Pass]** 조건 충족 → 명세된 동작이 정상 수행되는 흐름. 상태 저장/알림 카테고리가 있으면 재진입·발송 확인 TC 추가.
 - **[Fail]** 조건 미충족 케이스 + 카테고리별 실패 레시피(필수값 미입력, 미인증/권한 없음, 결제 승인 실패, 확장자·용량 초과, 중도 이탈/타임아웃, 5xx 등). 감지된 카테고리가 없으면 네트워크 단절 케이스로 대체.
 - **[Edge Case]** 추출된 경계값마다 **경계 외부 / 경계 정확값 / 경계 내부** 3점을 한 TC 로 묶어 검증. 재시도 상한(N회 소진·초과), 저속 네트워크, 목록 0건/1건/페이지경계/대량, 이탈 후 재진입, 멱등성(따닥) 케이스.
 
-### 4.3 중요도(High / Med / Low)
+### 5.3 중요도(High / Med / Low)
 
 카테고리 가중치 합 + 유형 보정(Fail +2, Edge +1, 경계값 +1)으로 점수를 내고 `>=10 High`, `>=5 Med`, 그 외 `Low`.
 결제·개인정보·삭제(6) > 인증·검증·오류·재시도·이탈(4) > 경계값·성능·파일·알림·상태(3) > 조건·이동·목록(2) > 노출(1).
@@ -112,7 +155,7 @@ SpecToTC/
 
 ---
 
-## 5. 테스트케이스 구조
+## 6. 테스트케이스 구조
 
 **다른 담당자가 표만 보고 그대로 실행할 수 있는가**를 기준으로 설계했습니다.
 
@@ -135,7 +178,7 @@ SpecToTC/
 
 ---
 
-## 6. 문서 요약 (핵심만 골라 보기)
+## 7. 문서 요약 (핵심만 골라 보기)
 
 우측 패널의 **문서 요약** 탭. `POST /api/summarize` 또는 `generate-tc` 응답의 `specSummary` 로도 받을 수 있습니다.
 
@@ -152,7 +195,7 @@ SpecToTC/
 
 ---
 
-## 7. REST API
+## 8. REST API
 
 모든 응답은 `application/json` (CSV 제외), 실패 시 `{ "ok": false, "error": "..." }`.
 
@@ -251,7 +294,9 @@ Dice 계수 유사도로 문장을 매칭해 **추가 / 수정 / 삭제 / 동일
 
 ### 기타
 
-- `GET /api/health` — 버전, Node 버전, AI 활성 여부, 업로드 제한
+- `POST /api/login` — `{ "password": "..." }` → 세션 쿠키 발급 (10회/15분 제한)
+- `POST /api/logout` — 세션 쿠키 만료
+- `GET /api/health` — 인증 없이 열려 있으나 **미인증 상태에서는 최소 정보만** 반환 (버전·인증 필요 여부). 인증 후에는 Node 버전·AI 상태·업로드 제한까지 포함
 - `GET /api/sample` — 샘플 기획서 텍스트
 
 > 한글이 포함된 본문은 **UTF-8 파일로 저장해서 보내세요.** Windows 터미널(Git Bash·cmd)에서 인라인 문자열로 보내면 CP949 로 전송돼 한글 키워드가 매칭되지 않고 TC 가 0건이 될 수 있습니다.
@@ -262,7 +307,7 @@ Dice 계수 유사도로 문장을 매칭해 **추가 / 수정 / 삭제 / 동일
 
 ---
 
-## 8. 대시보드
+## 9. 대시보드
 
 - **좌측** — 파일 드롭존, 기획서 입력(⌘/Ctrl + Enter 로 생성), Pass/Fail/Edge 포함 여부, Claude 보강 토글, 샘플 불러오기 / 기획서 비교 탭
 - **우측** — `테스트케이스` / `문서 요약` 뷰 전환
@@ -274,7 +319,7 @@ Dice 계수 유사도로 문장을 매칭해 **추가 / 수정 / 삭제 / 동일
 
 ---
 
-## 9. Vercel 배포
+## 10. Vercel 배포
 
 ```bash
 git add -A
@@ -284,7 +329,8 @@ git push -u origin main
 
 1. [vercel.com/new](https://vercel.com/new) → 이 저장소 Import
 2. Framework Preset: **Other** (`vercel.json` 이 이미 지정)
-3. Claude 보강을 쓸 경우 Project Settings → Environment Variables → `ANTHROPIC_API_KEY` 등록 후 Redeploy
+3. **Project Settings → Environment Variables → `SPECTOTC_PASSWORD` 등록** (필수 — 없으면 서비스가 503으로 잠깁니다)
+4. Claude 보강을 쓸 경우 `ANTHROPIC_API_KEY` 도 등록 후 Redeploy
 4. Deploy → `https://<프로젝트>.vercel.app` 에서 대시보드, `/api/health` 로 상태 확인
 
 배포 구성 요약:
@@ -299,7 +345,7 @@ git push -u origin main
 
 ---
 
-## 10. Claude 보강 (선택)
+## 11. Claude 보강 (선택)
 
 `ANTHROPIC_API_KEY` 가 설정된 경우에만 동작합니다.
 
@@ -313,10 +359,12 @@ git push -u origin main
 
 ---
 
-## 11. 알려진 한계
+## 12. 알려진 한계
 
 - 파서는 **문장 단위 규칙 기반**입니다. 이미지·플로우차트로만 표현된 기획, 셀 병합이 복잡한 표는 잡지 못합니다.
 - 조건절/동작절 분리는 한국어 어미 패턴에 의존하므로, 만연체 문장에서는 조건이 통째로 동작절에 포함될 수 있습니다.
 - PDF 는 레이아웃 정보를 잃습니다. 2단 편집·표 중심 문서는 줄 순서가 섞일 수 있어, 추출 결과를 텍스트 영역에서 한 번 확인하는 것을 권합니다.
 - 생성된 TC 는 **초안**입니다. QA 가 검토·병합하는 것을 전제로 설계했고, 그래서 모든 TC 에 `requirement.text` / `requirement.line`(근거 문장)을 함께 담습니다.
 - Diff 는 문장 유사도 기반이라 문단을 크게 재구성한 개정판에서는 `added` + `removed` 로 잡힐 수 있습니다(`threshold` 조정 가능).
+- 인증은 **팀 공용 비밀번호 하나**입니다. 개인별 계정·권한 구분·접속 감사 로그가 필요하면 SSO(예: Vercel Authentication, Cloudflare Access) 앞단에 두는 편이 낫습니다.
+- 레이트리밋은 서버리스 인스턴스별로만 동작합니다(위 3장 참고).
