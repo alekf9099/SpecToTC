@@ -1,0 +1,3 @@
+# 사내 QA 도구 — 색인 대상이 아님
+User-agent: *
+Disallow: /

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>SpecToTC — 로그인</title>
+  <link rel="stylesheet" href="./dashboard.css" />
+  <style>
+    .login-wrap {
+      min-height: calc(100vh - 0px);
+      display: grid; place-items: center; padding: 24px;
+    }
+    .login-card {
+      width: 100%; max-width: 380px; padding: 28px;
+      background: linear-gradient(180deg, var(--card), hsl(225 27% 9.5%));
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+    }
+    .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    .login-brand h1 { margin: 0; font-size: 17px; font-weight: 650; }
+    .login-brand p { margin: 2px 0 0; font-size: 12px; color: var(--fg-subtle); }
+    .login-card label { display: block; margin-bottom: 7px; font-size: 11.5px; font-weight: 550; color: var(--fg-subtle); }
+    .login-card input[type="password"] {
+      width: 100%; padding: 11px 13px; margin-bottom: 14px;
+      color: var(--fg); background: hsl(226 28% 6.5%);
+      border: 1px solid var(--border); border-radius: 10px;
+      font: 14px/1.5 inherit;
+      transition: border-color var(--dur) ease, box-shadow var(--dur) ease;
+    }
+    .login-card input:focus-visible { outline: none; border-color: var(--primary); box-shadow: var(--ring); }
+    .login-card .btn { width: 100%; justify-content: center; }
+    .login-note { margin: 18px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--fg-subtle); }
+  </style>
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="logo">TC</span>
+        <div>
+          <h1>SpecToTC</h1>
+          <p>기획서 기반 테스트케이스 생성기</p>
+        </div>
+      </div>
+
+      <form id="loginForm" autocomplete="off">
+        <label for="password">접속 비밀번호</label>
+        <input type="password" id="password" name="password" required autofocus
+               autocomplete="current-password" placeholder="팀 공용 비밀번호" />
+        <button type="submit" class="btn btn-primary" id="btnLogin">들어가기</button>
+      </form>
+
+      <div id="loginStatus" class="status" hidden></div>
+
+      <p class="login-note">
+        사내 기획서를 다루는 도구입니다. 비밀번호는 팀 채널에 공유된 값을 사용하세요.<br />
+        비밀번호를 모르면 QA 담당자에게 문의해 주세요.
+      </p>
+    </div>
+  </main>
+
+  <script>
+    'use strict';
+    const form = document.querySelector('#loginForm');
+    const input = document.querySelector('#password');
+    const btn = document.querySelector('#btnLogin');
+    const box = document.querySelector('#loginStatus');
+
+    function setStatus(message, kind) {
+      if (!message) { box.hidden = true; return; }
+      box.hidden = false;
+      box.textContent = message;
+      box.className = 'status' + (kind ? ' is-' + kind : '');
+    }
+
+    // 로그인 후 돌아갈 경로 (?next=/... 형태, 같은 사이트 경로만 허용)
+    function nextPath() {
+      const raw = new URLSearchParams(location.search).get('next') || '/';
+      return /^\/[^/\\]/.test(raw) || raw === '/' ? raw : '/';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      setStatus('확인 중…');
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: input.value }),
+        });
+        const data = await res.json().catch(() => ({ ok: false, error: 'HTTP ' + res.status }));
+
+        if (res.ok && data.ok) {
+          setStatus('확인됐습니다. 이동합니다…', 'ok');
+          location.replace(nextPath());
+          return;
+        }
+        setStatus(data.error || '로그인에 실패했습니다.', 'error');
+        input.value = '';
+        input.focus();
+      } catch (err) {
+        setStatus('서버에 연결할 수 없습니다: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

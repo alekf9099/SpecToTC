@@ -10,11 +10,21 @@ const { diffSpecs } = require('./diff');
 const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
 const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
+const auth = require('./auth');
+const { limiter } = require('./ratelimit');
 const ai = require('./ai');
 
 const MAX_SPEC_LENGTH = Number(process.env.SPECTOTC_MAX_SPEC || 300000);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SAMPLE_PATH = path.join(__dirname, '..', 'samples', 'sample-srs.md');
+
+/** 인증 없이 접근 가능한 경로 — 로그인 화면과 그 화면이 필요한 리소스만 */
+const PUBLIC_PATHS = new Set([
+  '/login.html', '/login',
+  '/dashboard.css',
+  '/robots.txt', '/favicon.ico',
+  '/api/login', '/api/health',
+]);
 
 function badRequest(res, message) {
   return res.status(400).json({ ok: false, error: message });
@@ -41,9 +51,61 @@ function pickGeneratorOptions(raw = {}) {
   return opt;
 }
 
+/* --------------------------------------------------------------- AI 게이트 */
+
+/**
+ * AI 보강은 비용이 발생하므로 인증 외에 별도 잠금을 둔다.
+ *   SPECTOTC_AI_ENABLED=false  → 키가 있어도 AI 기능 차단
+ *   SPECTOTC_AI_TOKEN=...      → 설정 시 X-AI-Token 헤더가 일치해야 허용
+ */
+function aiGate(req) {
+  if (process.env.SPECTOTC_AI_ENABLED === 'false') {
+    return { allowed: false, error: 'AI 보강이 서버 설정으로 비활성화되어 있습니다 (SPECTOTC_AI_ENABLED=false).' };
+  }
+  const required = (process.env.SPECTOTC_AI_TOKEN || '').trim();
+  if (required && req.get('X-AI-Token') !== required) {
+    return { allowed: false, error: 'AI 보강에는 별도 토큰(X-AI-Token)이 필요합니다.' };
+  }
+  return { allowed: true };
+}
+
+/* ------------------------------------------------------------------ 로깅 */
+
+/**
+ * 기획서 본문이 로그에 남지 않도록 메타데이터만 기록한다.
+ * (에러 메시지에 문서 조각이 섞여 들어오는 경우가 있어 본문 계열은 절대 넣지 않는다.)
+ */
+function logMeta(event, fields = {}) {
+  if (process.env.SPECTOTC_QUIET === 'true') return;
+  const parts = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(' ');
+  console.log(`[SpecToTC] ${event}${parts ? ` ${parts}` : ''}`);
+}
+
 function createApp() {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', true);
+
+  /* --------------------------------------------------- 공통 보안 헤더 */
+  app.use((req, res, next) => {
+    // 사내 도구이므로 검색 엔진 색인·크롤링을 전면 차단한다.
+    res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Referrer-Policy', 'no-referrer');
+    res.set('X-Frame-Options', 'DENY');
+    next();
+  });
+
+  /* ------------------- 비밀번호 없이 배포된 경우 전면 차단 (사고 방지) */
+  app.use((req, res, next) => {
+    if (!auth.isMisconfigured()) return next();
+    res.status(503).json({
+      ok: false,
+      error: '접속 비밀번호(SPECTOTC_PASSWORD)가 설정되지 않아 서비스를 잠갔습니다. '
+        + '배포 환경 변수에 비밀번호를 등록한 뒤 재배포해 주세요.',
+    });
+  });
+
   app.use(express.json({ limit: '4mb' }));
   app.use(express.urlencoded({ extended: false, limit: '4mb' }));
 
@@ -52,21 +114,86 @@ function createApp() {
     next();
   });
 
+  /* ------------------------------------------------------------- 로그인 */
+  // 무작위 대입을 막기 위해 로그인만 별도의 좁은 한도를 준다.
+  app.post('/api/login',
+    limiter({ name: 'login', limit: 10, windowMs: 15 * 60 * 1000, message: '로그인 시도가 너무 많습니다.' }),
+    (req, res) => {
+      if (!auth.isEnabled()) {
+        return res.json({ ok: true, authRequired: false, message: '이 서버는 인증이 비활성화되어 있습니다.' });
+      }
+      const supplied = req.body && req.body.password;
+      if (!auth.verifyPassword(supplied)) {
+        logMeta('login.failed', { ip: req.ip });
+        return res.status(401).json({ ok: false, error: '비밀번호가 올바르지 않습니다.' });
+      }
+      auth.setSessionCookie(req, res);
+      logMeta('login.ok', { hours: auth.sessionHours() });
+      res.json({ ok: true, authRequired: true, expiresInHours: auth.sessionHours() });
+    });
+
+  app.post('/api/logout', (req, res) => {
+    auth.clearSessionCookie(req, res);
+    res.json({ ok: true });
+  });
+
   /* ------------------------------------------------------------- health */
+  // 모니터링용으로 인증 없이 열어두되, 미인증 상태에서는 최소 정보만 노출한다.
   app.get('/api/health', (req, res) => {
-    res.json({
+    const base = {
       ok: true,
       service: 'SpecToTC',
       version: require('../package.json').version,
-      node: process.version,
-      ai: { enabled: ai.isEnabled(), model: ai.MODEL },
-      upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
+      auth: { required: auth.isEnabled(), authenticated: auth.isAuthenticated(req) },
       time: new Date().toISOString(),
+    };
+    if (!auth.isAuthenticated(req)) return res.json(base);
+
+    res.json({
+      ...base,
+      node: process.version,
+      ai: {
+        enabled: ai.isEnabled() && aiGate(req).allowed,
+        model: ai.MODEL,
+        tokenRequired: Boolean((process.env.SPECTOTC_AI_TOKEN || '').trim()),
+      },
+      upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
+      sessionHours: auth.sessionHours(),
     });
   });
 
+  /* -------------------------------------------------------- 인증 게이트 */
+  app.use((req, res, next) => {
+    if (!auth.isEnabled()) return next();
+    if (PUBLIC_PATHS.has(req.path)) return next();
+    if (auth.isAuthenticated(req)) return next();
+
+    if (req.path.startsWith('/api/')) {
+      return res.status(401).json({ ok: false, error: '로그인이 필요합니다.', loginUrl: '/login.html' });
+    }
+    // 화면 요청이면 로그인 페이지로 보내고, 로그인 후 원래 경로로 돌려보낸다.
+    const next_ = encodeURIComponent(req.originalUrl || '/');
+    return res.redirect(302, `/login.html?next=${next_}`);
+  });
+
+  /* --------------------------------------------- 여기부터는 인증된 요청 */
+
+  const readLimiter = limiter({ name: 'read', limit: 120, windowMs: 60 * 1000 });
+  const generateLimiter = limiter({ name: 'generate', limit: 60, windowMs: 60 * 1000 });
+  const uploadLimiter = limiter({
+    name: 'upload', limit: 20, windowMs: 60 * 1000,
+    message: '업로드 요청이 너무 많습니다.',
+  });
+  const aiLimiter = limiter({
+    name: 'ai', limit: 12, windowMs: 60 * 60 * 1000,
+    message: 'AI 보강 요청 한도를 초과했습니다.',
+  });
+
+  /** useAI 요청일 때만 AI 한도를 적용 */
+  const maybeAiLimit = (req, res, next) => (req.body && req.body.useAI ? aiLimiter(req, res, next) : next());
+
   /* ------------------------------------------------------- 샘플 기획서 */
-  app.get('/api/sample', (req, res) => {
+  app.get('/api/sample', readLimiter, (req, res) => {
     fs.readFile(SAMPLE_PATH, 'utf8', (err, data) => {
       if (err) return res.status(404).json({ ok: false, error: '샘플 기획서를 찾을 수 없습니다.' });
       res.json({ ok: true, specText: data });
@@ -77,6 +204,7 @@ function createApp() {
   // 멀티파트 대신 raw 바디 + X-File-Name 헤더를 쓴다.
   // 브라우저에서 fetch(file) 로 File 객체를 그대로 body 에 실을 수 있어 파서 의존성이 없다.
   app.post('/api/extract-text',
+    uploadLimiter,
     express.raw({ type: () => true, limit: `${Math.ceil(MAX_UPLOAD / 1024 / 1024)}mb` }),
     async (req, res) => {
       if (!Buffer.isBuffer(req.body) || !req.body.length) {
@@ -93,21 +221,25 @@ function createApp() {
         }
       }
 
+      const started = Date.now();
       try {
         const { text, meta } = await extractText(req.body, fileName);
         const truncated = text.length > MAX_SPEC_LENGTH;
+        // 파일명·본문은 남기지 않고 형식/크기/시간만 기록한다.
+        logMeta('extract.ok', { kind: meta.kind, bytes: meta.bytes, chars: text.length, ms: Date.now() - started });
         res.json({
           ok: true,
           specText: truncated ? text.slice(0, MAX_SPEC_LENGTH) : text,
           meta: { ...meta, chars: text.length, truncated },
         });
       } catch (err) {
+        logMeta('extract.failed', { bytes: req.body.length, ms: Date.now() - started });
         badRequest(res, err.message);
       }
     });
 
   /* ---------------------------------------------------- TC 생성 (메인) */
-  app.post('/api/generate-tc', async (req, res) => {
+  app.post('/api/generate-tc', generateLimiter, maybeAiLimit, async (req, res) => {
     const { value: specText, error } = readSpecText(req.body || {});
     if (error) return badRequest(res, error);
 
@@ -141,27 +273,39 @@ function createApp() {
     };
 
     if (req.body && req.body.useAI) {
-      const enriched = await ai.enrichWithClaude(specText, result.testCases, {
-        limit: Number(req.body.aiLimit) || 12,
-      });
-      response.ai = {
-        requested: true,
-        enabled: enriched.enabled,
-        model: enriched.model,
-        error: enriched.error,
-        added: enriched.testCases.length,
-      };
-      if (enriched.testCases.length) {
-        response.testCases = [...response.testCases, ...enriched.testCases];
-        response.summary = { ...summarize(response.testCases), parse: result.summary.parse };
+      const gate = aiGate(req);
+      if (!gate.allowed) {
+        response.ai = { requested: true, enabled: false, error: gate.error };
+      } else {
+        const enriched = await ai.enrichWithClaude(specText, result.testCases, {
+          limit: Number(req.body.aiLimit) || 12,
+        });
+        response.ai = {
+          requested: true,
+          enabled: enriched.enabled,
+          model: enriched.model,
+          error: enriched.error,
+          added: enriched.testCases.length,
+        };
+        if (enriched.testCases.length) {
+          response.testCases = [...response.testCases, ...enriched.testCases];
+          response.summary = { ...summarize(response.testCases), parse: result.summary.parse };
+        }
       }
     }
 
+    logMeta('generate.ok', {
+      chars: specText.length,
+      requirements: result.requirements.length,
+      tc: response.testCases.length,
+      ai: response.ai.added || 0,
+      ms: Date.now() - started,
+    });
     res.json(response);
   });
 
   /* ----------------------------------------------------- CSV 내보내기 */
-  app.post('/api/export-csv', (req, res) => {
+  app.post('/api/export-csv', generateLimiter, (req, res) => {
     const body = req.body || {};
     let testCases = body.testCases;
 
@@ -179,11 +323,12 @@ function createApp() {
 
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    logMeta('export.csv', { rows: testCases.length, bytes: Buffer.byteLength(csv) });
     res.send(csv);
   });
 
   /* ------------------------------------------------------- 기획서 요약 */
-  app.post('/api/summarize', async (req, res) => {
+  app.post('/api/summarize', generateLimiter, maybeAiLimit, async (req, res) => {
     const { value: specText, error } = readSpecText(req.body || {});
     if (error) return badRequest(res, error);
 
@@ -199,21 +344,27 @@ function createApp() {
     };
 
     if (req.body && req.body.useAI) {
-      const enriched = await ai.summarizeWithClaude(specText, { ruleSummary: summary });
-      response.ai = {
-        requested: true,
-        enabled: enriched.enabled,
-        model: enriched.model,
-        error: enriched.error,
-        summary: enriched.summary,
-      };
+      const gate = aiGate(req);
+      if (!gate.allowed) {
+        response.ai = { requested: true, enabled: false, error: gate.error };
+      } else {
+        const enriched = await ai.summarizeWithClaude(specText, { ruleSummary: summary });
+        response.ai = {
+          requested: true,
+          enabled: enriched.enabled,
+          model: enriched.model,
+          error: enriched.error,
+          summary: enriched.summary,
+        };
+      }
     }
 
+    logMeta('summarize.ok', { chars: specText.length, requirements: parsed.requirements.length });
     res.json(response);
   });
 
   /* ------------------------------------------------------- 기획서 diff */
-  app.post('/api/diff-check', (req, res) => {
+  app.post('/api/diff-check', generateLimiter, (req, res) => {
     const body = req.body || {};
     const oldSpec = readSpecText(body, 'oldText');
     if (oldSpec.error) return badRequest(res, 'oldText (이전 기획서)가 비어 있습니다.');
@@ -228,6 +379,9 @@ function createApp() {
       generatorOptions: pickGeneratorOptions(body.options || {}),
     });
 
+    logMeta('diff.ok', {
+      added: result.summary.added, removed: result.summary.removed, modified: result.summary.modified,
+    });
     res.json({ ok: true, generatedAt: new Date().toISOString(), ...result });
   });
 
@@ -238,8 +392,18 @@ function createApp() {
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
-    console.error('[SpecToTC] unhandled error:', err);
-    res.status(500).json({ ok: false, error: err.message || '서버 내부 오류' });
+    // JSON 파싱 오류 메시지에는 본문 조각이 섞이므로 로그·응답 모두에서 지운다.
+    const isBodyError = err instanceof SyntaxError || err.type === 'entity.parse.failed' || err.type === 'entity.too.large';
+    if (isBodyError) {
+      logMeta('request.invalidBody', { type: err.type || 'syntax', status: err.status || 400 });
+      return res.status(err.status || 400).json({
+        ok: false,
+        error: err.type === 'entity.too.large' ? '요청 본문이 너무 큽니다.' : '요청 본문(JSON) 형식이 올바르지 않습니다.',
+      });
+    }
+
+    console.error('[SpecToTC] unhandled error:', err.stack || err.message);
+    res.status(500).json({ ok: false, error: '서버 내부 오류가 발생했습니다.' });
   });
 
   return app;

@@ -302,7 +302,24 @@ test('지원하지 않는 형식은 명확한 오류를 낸다', async () => {
 
 /* ---------------------------------------------------------------- HTTP */
 
-function withServer(fn) {
+function withServer(fn, envOverrides) {
+  const saved = {};
+  if (envOverrides) {
+    for (const [k, v] of Object.entries(envOverrides)) {
+      saved[k] = process.env[k];
+      if (v == null) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+
+  const restore = () => {
+    if (!envOverrides) return;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+
   return new Promise((resolve, reject) => {
     const server = createApp().listen(0, async () => {
       const base = `http://127.0.0.1:${server.address().port}`;
@@ -313,9 +330,25 @@ function withServer(fn) {
         reject(err);
       } finally {
         server.close();
+        restore();
       }
     });
   });
+}
+
+const PW = 'test-team-password';
+const authEnv = (extra) => ({ SPECTOTC_PASSWORD: PW, SPECTOTC_DISABLE_RATELIMIT: 'true', ...extra });
+
+/** 로그인해서 세션 쿠키 문자열을 얻는다 */
+async function login(base, password = PW) {
+  const res = await fetch(base + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const setCookie = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie')];
+  const cookie = (setCookie || []).filter(Boolean).map((c) => c.split(';')[0]).join('; ');
+  return { status: res.status, body: await res.json(), cookie };
 }
 
 const post = (base, path, body) =>
@@ -408,6 +441,190 @@ test('POST /api/generate-tc 응답에 specSummary 가 포함된다', () => withS
   const data = await res.json();
   assert.ok(data.specSummary && data.specSummary.headline);
   assert.ok(data.specSummary.coverage.testCases === data.testCases.length);
+}));
+
+/* --------------------------------------------------------------- 인증 */
+
+const auth = require('../src/auth');
+const ratelimit = require('../src/ratelimit');
+
+test('비밀번호 검증은 타이밍 안전 비교를 쓴다', () => {
+  const saved = process.env.SPECTOTC_PASSWORD;
+  process.env.SPECTOTC_PASSWORD = 'hunter2';
+  try {
+    assert.equal(auth.isEnabled(), true);
+    assert.equal(auth.verifyPassword('hunter2'), true);
+    assert.equal(auth.verifyPassword('hunter3'), false);
+    assert.equal(auth.verifyPassword('hunter2 '), false, '공백까지 일치해야 한다');
+    assert.equal(auth.verifyPassword(''), false);
+    assert.equal(auth.verifyPassword(null), false);
+  } finally {
+    if (saved === undefined) delete process.env.SPECTOTC_PASSWORD;
+    else process.env.SPECTOTC_PASSWORD = saved;
+  }
+});
+
+test('세션 토큰은 위조·만료를 걸러낸다', () => {
+  const saved = process.env.SPECTOTC_PASSWORD;
+  process.env.SPECTOTC_PASSWORD = 'hunter2';
+  try {
+    const token = auth.createToken();
+    assert.equal(auth.verifyToken(token), true);
+
+    const [payload, sig] = token.split('.');
+    assert.equal(auth.verifyToken(payload + '.' + sig.slice(0, -2) + 'xx'), false, '서명 위조 통과');
+    assert.equal(auth.verifyToken(payload), false, '서명 없는 토큰 통과');
+    assert.equal(auth.verifyToken(''), false);
+
+    // 만료된 페이로드를 같은 키로 정상 서명해도 거부돼야 한다
+    const crypto = require('node:crypto');
+    const expired = Buffer.from(JSON.stringify({ v: 1, exp: Date.now() - 1000 })).toString('base64url');
+    const secret = crypto.createHash('sha256').update('spectotc:hunter2').digest('hex');
+    const sig2 = crypto.createHmac('sha256', secret).update(expired).digest('base64url');
+    assert.equal(auth.verifyToken(expired + '.' + sig2), false, '만료 토큰 통과');
+
+    // 비밀번호를 바꾸면 기존 토큰이 무효가 된다
+    process.env.SPECTOTC_PASSWORD = 'other';
+    assert.equal(auth.verifyToken(token), false, '비밀번호 교체 후에도 세션 유효');
+  } finally {
+    if (saved === undefined) delete process.env.SPECTOTC_PASSWORD;
+    else process.env.SPECTOTC_PASSWORD = saved;
+  }
+});
+
+test('인증이 켜지면 API 는 401, 화면은 로그인으로 리다이렉트', () => withServer(async (base) => {
+  const api = await post(base, '/api/generate-tc', { specText: '- 비밀번호는 8자 이상이다.' });
+  assert.equal(api.status, 401);
+  const body = await api.json();
+  assert.equal(body.loginUrl, '/login.html');
+
+  const page = await fetch(base + '/', { redirect: 'manual' });
+  assert.equal(page.status, 302);
+  assert.match(page.headers.get('location'), /^\/login\.html\?next=/);
+}, authEnv()));
+
+test('로그인 후 세션 쿠키로 API 를 쓸 수 있다', () => withServer(async (base) => {
+  const bad = await login(base, 'wrong-password');
+  assert.equal(bad.status, 401);
+  assert.equal(bad.cookie, '', '실패 시 쿠키가 발급됨');
+
+  const ok = await login(base);
+  assert.equal(ok.status, 200);
+  assert.match(ok.cookie, /spectotc_session=/);
+
+  const res = await fetch(base + '/api/generate-tc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: ok.cookie },
+    body: JSON.stringify({ specText: SAMPLE }),
+  });
+  assert.equal(res.status, 200);
+  assert.ok((await res.json()).testCases.length > 30);
+}, authEnv()));
+
+test('세션 쿠키는 HttpOnly · SameSite 속성을 갖는다', () => withServer(async (base) => {
+  const res = await fetch(base + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: PW }),
+  });
+  const raw = (res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie')]).join(';;');
+  assert.match(raw, /HttpOnly/i);
+  assert.match(raw, /SameSite=Lax/i);
+  assert.match(raw, /Max-Age=\d+/i);
+}, authEnv()));
+
+test('로그아웃하면 세션이 무효가 된다', () => withServer(async (base) => {
+  const { cookie } = await login(base);
+  const out = await fetch(base + '/api/logout', { method: 'POST', headers: { Cookie: cookie } });
+  assert.equal(out.status, 200);
+  const cleared = (out.headers.getSetCookie ? out.headers.getSetCookie() : [out.headers.get('set-cookie')]).join(';;');
+  assert.match(cleared, /Max-Age=0/i);
+}, authEnv()));
+
+test('로그인 화면과 health 는 인증 없이 열린다', () => withServer(async (base) => {
+  assert.equal((await fetch(base + '/login.html')).status, 200);
+  assert.equal((await fetch(base + '/dashboard.css')).status, 200);
+  assert.equal((await fetch(base + '/robots.txt')).status, 200);
+
+  const health = await (await fetch(base + '/api/health')).json();
+  assert.equal(health.auth.required, true);
+  assert.equal(health.auth.authenticated, false);
+  assert.equal(health.node, undefined, '미인증 상태에 상세 정보 노출');
+  assert.equal(health.upload, undefined, '미인증 상태에 상세 정보 노출');
+}, authEnv()));
+
+test('비밀번호 없이 배포되면 503 으로 잠근다', () => withServer(async (base) => {
+  const res = await fetch(base + '/api/health');
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /SPECTOTC_PASSWORD/);
+}, { SPECTOTC_PASSWORD: undefined, SPECTOTC_FORCE_AUTH: '1' }));
+
+test('로그인 시도는 레이트리밋에 걸린다', () => withServer(async (base) => {
+  ratelimit.reset();
+  let blocked = 0;
+  for (let i = 0; i < 13; i += 1) {
+    const res = await fetch(base + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'nope' }),
+    });
+    if (res.status === 429) {
+      blocked += 1;
+      assert.ok(res.headers.get('retry-after'), 'Retry-After 헤더 없음');
+    }
+  }
+  ratelimit.reset();
+  assert.ok(blocked >= 3, `차단된 요청이 부족: ${blocked}`);
+}, { SPECTOTC_PASSWORD: PW, SPECTOTC_DISABLE_RATELIMIT: undefined }));
+
+test('AI 보강은 서버 설정으로 잠글 수 있다', () => withServer(async (base) => {
+  const { cookie } = await login(base);
+  const res = await fetch(base + '/api/generate-tc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ specText: '- 비밀번호는 8자 이상이다.', useAI: true }),
+  });
+  const data = await res.json();
+  assert.equal(data.ai.enabled, false);
+  assert.match(data.ai.error, /비활성화/);
+  assert.ok(data.testCases.length > 0, '규칙 엔진 결과는 그대로 나와야 한다');
+}, authEnv({ SPECTOTC_AI_ENABLED: 'false' })));
+
+test('AI 토큰이 설정되면 헤더 없이는 거부된다', () => withServer(async (base) => {
+  const { cookie } = await login(base);
+  const call = (headers) => fetch(base + '/api/summarize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie, ...headers },
+    body: JSON.stringify({ specText: '- 비밀번호는 8자 이상이다.', useAI: true }),
+  }).then((r) => r.json());
+
+  const denied = await call({});
+  assert.match(denied.ai.error, /X-AI-Token/);
+  const wrong = await call({ 'X-AI-Token': 'bad' });
+  assert.match(wrong.ai.error, /X-AI-Token/);
+}, authEnv({ SPECTOTC_AI_TOKEN: 'secret-token', SPECTOTC_AI_ENABLED: undefined })));
+
+test('검색 엔진 차단 헤더와 robots.txt 를 내려준다', () => withServer(async (base) => {
+  const res = await fetch(base + '/api/health');
+  assert.match(res.headers.get('x-robots-tag'), /noindex/);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+
+  const robots = await fetch(base + '/robots.txt');
+  assert.match(await robots.text(), /Disallow: \//);
+}));
+
+test('깨진 JSON 본문은 내용을 되돌려주지 않는다', () => withServer(async (base) => {
+  const secret = '사내 대외비 기획 내용';
+  const res = await fetch(base + '/api/generate-tc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{"specText": "' + secret + '"',  // 닫는 중괄호 없음
+  });
+  assert.equal(res.status, 400);
+  const body = await res.text();
+  assert.ok(!body.includes(secret), '응답에 기획서 내용이 노출됨: ' + body);
+  assert.match(body, /JSON/);
 }));
 
 test('없는 API 경로는 404 JSON', () => withServer(async (base) => {
