@@ -4,6 +4,7 @@
 const state = {
   testCases: [],
   sourceName: null,
+  webUrl: null,
   webInventory: null,
   webInventoryOriginal: null,
   specSummary: null,
@@ -119,7 +120,8 @@ function renderTable() {
 
     return `
       <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
-        <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}</td>
+        <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}${
+      tc.origin === 'live' ? '<span class="pill pill-live" title="브라우저로 실제 실행해 관측한 결과">실측</span>' : ''}</td>
         <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}">${esc(tc.type)}</span></td>
         <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
         <td class="cell-area">${esc(tc.area)}</td>
@@ -557,10 +559,40 @@ async function loadHealth() {
     $('#healthBadge').textContent = `v${data.version}${data.node ? ' · ' + data.node : ''}`;
     $('#healthBadge').className = 'badge badge-ok';
     if (!ai.enabled) $('#optAI').disabled = true;
+    renderBrowserBadge(data.browser);
   } catch (err) {
     $('#aiBadge').textContent = '서버 연결 실패';
     $('#aiBadge').className = 'badge badge-off';
   }
+}
+
+/**
+ * 브라우저 실행 기능이 어디까지 가능한지 화면에 그대로 알려준다.
+ * 버튼을 눌러보고 나서 "안 됩니다" 를 만나는 것보다, 미리 아는 게 낫다.
+ */
+function renderBrowserBadge(browser) {
+  const badge = $('#browserBadge');
+  const render = $('#optRender');
+  if (!badge) return;
+
+  if (!browser || !browser.enabled) {
+    badge.textContent = '브라우저 실행 꺼짐 (SPECTOTC_BROWSER=1)';
+    badge.className = 'badge badge-muted';
+    if (render) { render.disabled = true; render.checked = false; }
+    return;
+  }
+  if (!browser.driverInstalled) {
+    badge.textContent = '브라우저 드라이버 없음 (playwright-core 설치 필요)';
+    badge.className = 'badge badge-off';
+    if (render) { render.disabled = true; render.checked = false; }
+    return;
+  }
+
+  badge.textContent = browser.submitEnabled
+    ? `브라우저 실행 가능 · 실제 제출 허용 ${browser.allowHosts}개 도메인${browser.allowPost ? ' (POST 포함)' : ' (GET만)'}`
+    : '브라우저 실행 가능 · 실제 제출은 꺼짐';
+  badge.className = 'badge badge-ok';
+  if (render) render.disabled = false;
 }
 
 bind();

@@ -80,12 +80,16 @@ async function analyzeUrl() {
     return;
   }
 
+  const render = $('#optRender') && $('#optRender').checked;
   const btn = $('#btnAnalyzeUrl');
   btn.disabled = true;
-  setStatus('페이지를 가져와 화면 요소를 분석하는 중…');
+  setStatus(render
+    ? '브라우저로 페이지를 열어 렌더링된 화면을 분석하는 중… (JS 로 그려지는 요소 포함, 시간이 더 걸립니다)'
+    : '페이지를 가져와 화면 요소를 분석하는 중…');
 
   try {
-    const data = await api('/api/analyze-url', { url });
+    const data = await api('/api/analyze-url', { url, render });
+    state.webUrl = url;
 
     state.testCases = data.testCases || [];
     state.specSummary = data.specSummary || null;
@@ -110,8 +114,15 @@ async function analyzeUrl() {
       `분석 완료 — TC ${state.testCases.length}건 (${data.elapsedMs}ms)`,
       data.page.title ? `제목: ${data.page.title}` : '',
       `폼 ${inv.interaction.forms.length}개 · 입력 ${fieldCount}개 · 버튼 ${inv.interaction.buttonCount}개 · 내부 링크 ${inv.links.internalCount}개`,
-      inv.rendering.jsRendered
-        ? '⚠ JS 렌더링 위주 페이지입니다 — 브라우저에서 직접 열어 놓친 요소를 TC 로 보완하세요.'
+      data.renderedByBrowser
+        ? '✔ 브라우저로 렌더링한 화면을 분석했습니다 — JS 로 그려지는 요소가 포함됩니다.'
+        : '',
+      data.renderFallbackNote ? `⚠ ${data.renderFallbackNote}` : '',
+      !data.renderedByBrowser && inv.rendering.jsRendered
+        ? '⚠ JS 렌더링 위주 페이지입니다 — [브라우저로 렌더링 분석] 을 켜고 다시 시도하면 가려진 요소까지 볼 수 있습니다.'
+        : '',
+      data.observations && data.observations.consoleErrors.length
+        ? `⚠ 페이지 로딩 중 콘솔 오류 ${data.observations.consoleErrors.length}건 관측`
         : '',
     ].filter(Boolean).join('\n'), 'ok');
   } catch (err) {

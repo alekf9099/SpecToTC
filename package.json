@@ -20,7 +20,8 @@
     "pdfjs-dist": "^5.6.205"
   },
   "optionalDependencies": {
-    "@anthropic-ai/sdk": "^0.120.0"
+    "@anthropic-ai/sdk": "^0.120.0",
+    "playwright-core": "^1.62.1"
   },
   "keywords": [
     "qa",

@@ -780,6 +780,192 @@ test('POST /api/analyze-url — 잘못된 입력을 400 으로 막는다', () =>
   assert.equal(scheme.status, 400);
   assert.match((await scheme.json()).error, /http\/https/);
 }, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+/* ------------------------------------------------ 실행 검증 게이트·관측 TC */
+
+const browserMod = require('../src/web/browser');
+const { buildLiveTestCases, looksHandled } = require('../src/web/liveTestCases');
+
+/** 실행 검증 관련 환경 변수를 지정한 값으로 바꿔 실행하고 되돌린다 */
+function withEnv(vars, fn) {
+  const keys = ['SPECTOTC_BROWSER', 'SPECTOTC_LIVE_SUBMIT', 'SPECTOTC_LIVE_ALLOW_HOSTS', 'SPECTOTC_LIVE_ALLOW_POST'];
+  const saved = {};
+  keys.forEach((k) => { saved[k] = process.env[k]; delete process.env[k]; });
+  Object.entries(vars).forEach(([k, v]) => { process.env[k] = v; });
+  try {
+    return fn();
+  } finally {
+    keys.forEach((k) => {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    });
+  }
+}
+
+test('실행 검증 — 기본은 꺼져 있다 (남의 사이트에 실제 제출을 보내므로)', () => {
+  withEnv({}, () => {
+    assert.equal(browserMod.browserEnabled(), false);
+    assert.equal(browserMod.submitEnabled(), false);
+    assert.throws(() => browserMod.assertSubmitAllowed('example.com', 'GET'), /SPECTOTC_LIVE_SUBMIT/);
+  });
+});
+
+test('실행 검증 — 허용 호스트 목록이 없으면 아무 곳도 제출할 수 없다', () => {
+  withEnv({ SPECTOTC_LIVE_SUBMIT: '1' }, () => {
+    assert.throws(() => browserMod.assertSubmitAllowed('example.com', 'GET'), /허용 호스트가 없습니다/);
+  });
+});
+
+test('실행 검증 — 허용 목록에 없는 호스트는 막고, 하위 도메인은 포함한다', () => {
+  withEnv({ SPECTOTC_LIVE_SUBMIT: '1', SPECTOTC_LIVE_ALLOW_HOSTS: 'example.com, shop.test' }, () => {
+    // 허용된 도메인과 그 하위 도메인
+    browserMod.assertSubmitAllowed('example.com', 'GET');
+    browserMod.assertSubmitAllowed('www.example.com', 'GET');
+    browserMod.assertSubmitAllowed('shop.test', 'GET');
+
+    // 목록에 없는 곳
+    assert.throws(() => browserMod.assertSubmitAllowed('evil.com', 'GET'), /허용 목록에 없습니다/);
+    // 접미사만 같은 도메인이 통과하면 안 된다 (notexample.com)
+    assert.throws(() => browserMod.assertSubmitAllowed('notexample.com', 'GET'), /허용 목록에 없습니다/);
+  });
+});
+
+test('실행 검증 — POST 폼은 기본적으로 제출하지 않는다 (데이터를 바꿀 수 있으므로)', () => {
+  withEnv({ SPECTOTC_LIVE_SUBMIT: '1', SPECTOTC_LIVE_ALLOW_HOSTS: 'example.com' }, () => {
+    browserMod.assertSubmitAllowed('example.com', 'GET');
+    assert.throws(() => browserMod.assertSubmitAllowed('example.com', 'POST'), /SPECTOTC_LIVE_ALLOW_POST/);
+  });
+
+  withEnv({
+    SPECTOTC_LIVE_SUBMIT: '1', SPECTOTC_LIVE_ALLOW_HOSTS: 'example.com', SPECTOTC_LIVE_ALLOW_POST: '1',
+  }, () => {
+    browserMod.assertSubmitAllowed('example.com', 'POST');
+  });
+});
+
+test('실행 검증 — 내부망 주소는 브라우저를 띄우기 전에 막는다', async () => {
+  const { renderInventory, runFormCase } = require('../src/web/liveRun');
+  const form = { index: 1, name: '폼', method: 'GET', action: '/', fields: [] };
+
+  // 브라우저 실행 비용을 쓰기 전에 URL 단계에서 걸러야 한다
+  for (const bad of ['http://localhost/', 'http://127.0.0.1/', 'http://169.254.169.254/', 'file:///etc/passwd']) {
+    await assert.rejects(() => renderInventory(bad), /공개된 도메인|http\/https|사설|내부망/);
+    await assert.rejects(() => runFormCase(bad, form, [{ index: 0, value: 'x' }]), /공개된 도메인|http\/https|사설|내부망/);
+  }
+});
+
+/** 실제 브라우저 실행 없이 관측 결과 모양만 만든 것 */
+function fakeRun(over = {}) {
+  return {
+    label: '검색어 자동차 조회',
+    form: { index: 1, name: '검색 폼', method: 'GET', action: '/search' },
+    filled: [{ index: 0, label: '검색어', value: '자동차' }],
+    skipped: [],
+    submitAction: '제출 버튼 클릭',
+    validityBeforeSubmit: [],
+    navigated: true,
+    httpStatus: 200,
+    before: { url: 'https://shop.example.com/', title: '홈' },
+    after: {
+      url: 'https://shop.example.com/search?q=%EC%9E%90%EB%8F%99%EC%B0%A8',
+      title: '자동차 검색 결과',
+      messages: [],
+      results: { statedCounts: ['1,240건'], largestList: 20, bodyTextLength: 5000, looksEmpty: false },
+    },
+    valueInUrl: ['검색어'],
+    consoleErrors: [],
+    pageErrors: [],
+    dialogs: [],
+    ...over,
+  };
+}
+
+test('관측 결과 → TC — 기대 결과에 실측값이 들어가고 판단은 QA 에게 남긴다', () => {
+  const inv = { page: { url: 'https://shop.example.com/' } };
+  const [tc] = buildLiveTestCases(inv, [fakeRun()]);
+
+  assert.equal(tc.type, 'Pass');
+  assert.equal(tc.origin, 'live');
+  assert.ok(tc.tags.includes('live'));
+  assert.ok(tc.tags.includes('observed-ok'));
+  assert.match(tc.tc_id, /^TC-LP-\d{3}$/);
+
+  const expected = tc.expected.join(' | ');
+  assert.match(expected, /1,240건/, '본문에 표기된 건수를 관측값으로 적어야 한다');
+  assert.match(expected, /목록 항목 20개/);
+  assert.match(expected, /HTTP 200/);
+  assert.match(expected, /입력값이 조회 조건으로 전달됨/);
+  assert.match(expected, /현재 동작\(기준선\)/);
+
+  // 기획서가 없으면 "옳은지" 는 알 수 없다. 그 한계를 반드시 문구로 남긴다.
+  assert.match(expected, /QA 가 판단/);
+
+  // 수행 단계에 실제로 넣은 값이 있어야 재현할 수 있다
+  assert.match(tc.steps.join(' '), /검색어 = 자동차/);
+});
+
+test('관측 결과 → TC — 오류가 관측되면 Fail 로 분류하고 별도 TC 를 만든다', () => {
+  const inv = { page: { url: 'https://shop.example.com/' } };
+  const run = fakeRun({
+    navigated: false,
+    valueInUrl: [],
+    httpStatus: 500,
+    pageErrors: ['TypeError: undefined is not a function'],
+    consoleErrors: ['Failed to load resource'],
+    after: { url: 'https://shop.example.com/', title: '홈', messages: ['처리 중 오류가 발생했습니다'], results: { statedCounts: [], largestList: 0, bodyTextLength: 100, looksEmpty: false } },
+  });
+
+  assert.equal(looksHandled(run), false);
+  const list = buildLiveTestCases(inv, [run]);
+
+  assert.equal(list[0].type, 'Fail');
+  assert.ok(list[0].tags.includes('observed-problem'));
+  assert.match(list[0].expected.join(' | '), /스크립트 예외/);
+
+  const errTc = list.find((tc) => tc.tags.includes('console-error'));
+  assert.ok(errTc, '콘솔 오류 전용 TC 가 있어야 한다');
+  assert.equal(errTc.priority, 'High');
+  assert.match(errTc.expected.join(' '), /TypeError/);
+});
+
+test('관측 결과 → TC — 자동 입력 못 한 필드는 수동 확인 TC 로 남긴다', () => {
+  const inv = { page: { url: 'https://shop.example.com/' } };
+  const run = fakeRun({ skipped: [{ index: 2, label: '첨부 파일', reason: 'file 타입은 자동 입력하지 않음' }] });
+  const list = buildLiveTestCases(inv, [run]);
+
+  const manual = list.find((tc) => tc.tags.includes('manual-check'));
+  assert.ok(manual, '수동 확인 TC 가 있어야 한다');
+  assert.equal(manual.type, 'Edge Case');
+  assert.match(manual.steps.join(' '), /첨부 파일/);
+});
+
+test('POST /api/live-verify — 브라우저가 꺼져 있으면 이유를 알려주고 막는다', () => withServer(async (base) => {
+  const res = await post(base, '/api/live-verify', { url: 'https://example.com', inventory: {} });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /SPECTOTC_BROWSER/);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_BROWSER: undefined }));
+
+test('POST /api/live-verify — 실행할 값이 없으면 무엇을 채워야 하는지 알려준다', () => withServer(async (base) => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+
+  const noValue = await post(base, '/api/live-verify', { url: 'https://shop.example.com/', inventory: inv, formIndex: 0 });
+  assert.equal(noValue.status, 400);
+  assert.match((await noValue.json()).error, /정상 테스트 값/);
+
+  const noForm = await post(base, '/api/live-verify', { url: 'https://shop.example.com/', inventory: inv, formIndex: 99 });
+  assert.equal(noForm.status, 400);
+  assert.match((await noForm.json()).error, /폼을 찾을 수 없습니다/);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_BROWSER: '1' }));
+
+test('GET /api/health — 브라우저 실행 가능 여부를 알려준다', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/health`);
+  const data = await res.json();
+
+  assert.ok(data.browser, 'health 에 browser 항목이 있어야 한다');
+  assert.equal(data.browser.enabled, true);
+  assert.equal(data.browser.submitEnabled, false, '제출은 별도로 켜야 한다');
+  assert.equal(typeof data.browser.driverInstalled, 'boolean');
+}, { SPECTOTC_BROWSER: '1' }));
+
 /* -------------------------------------------- 폼 조건 지정(오버라이드) */
 
 const { applyOverrides, sanitizeInventory } = require('../src/web/overrides');

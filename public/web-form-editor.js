@@ -110,13 +110,20 @@ function renderFormEditor() {
     ${forms.map(formEditor).join('')}
     <div class="actions wf-actions">
       <button id="btnRegenWebTc" class="btn btn-primary">조건 반영해 TC 다시 생성</button>
+      <button id="btnLiveVerify" class="btn"
+              title="브라우저로 실제 값을 입력·제출하고 결과를 관측합니다. 서버에서 허용한 도메인만 가능합니다.">실제로 제출해 확인</button>
       <button id="btnResetWebOverrides" class="btn btn-ghost">지정한 조건 초기화</button>
-    </div>`;
+    </div>
+    <p class="sum-note wf-live-note">
+      <b>조건 반영해 TC 다시 생성</b> 은 문서만 만듭니다(실제 조회하지 않음).
+      <b>실제로 제출해 확인</b> 은 브라우저로 정말 입력·제출해 결과를 관측하고, 기대 결과에 실측값을 넣습니다.
+    </p>`;
 
   box.querySelectorAll('[data-add-btn]').forEach((btn) => {
     btn.addEventListener('click', () => addFieldRow(Number(btn.dataset.addBtn)));
   });
   $('#btnRegenWebTc').addEventListener('click', regenerateWebTestCases);
+  $('#btnLiveVerify').addEventListener('click', liveVerify);
   $('#btnResetWebOverrides').addEventListener('click', resetWebOverrides);
 }
 
@@ -249,6 +256,80 @@ async function regenerateWebTestCases() {
   } finally {
     btn.disabled = false;
   }
+}
+
+/**
+ * 브라우저로 실제 입력·제출하고 결과를 관측한다.
+ *
+ * 재생성(문서 생성)과 달리 이건 대상 사이트에 실제 요청을 보낸다.
+ * 그래서 서버가 허용한 도메인에서만 되고, 실패 이유를 그대로 보여준다.
+ */
+async function liveVerify() {
+  const url = state.webUrl || $('#siteUrl').value.trim();
+  if (!url) {
+    setStatus('검증할 주소가 없습니다. 먼저 웹사이트를 분석해 주세요.', 'error');
+    return;
+  }
+
+  // 어떤 폼을 실행할지 — 테스트 값이 채워진 첫 폼
+  mergeOverridesIntoState();
+  const forms = state.webInventory.interaction.forms;
+  const formIndex = forms.findIndex((f) => f.fields.some((x) => x.testValue));
+  if (formIndex < 0) {
+    setStatus('실행할 값이 없습니다. [정상 테스트 값] 칸에 실제로 입력할 값을 적어주세요. (예: 검색어 = 자동차)', 'error');
+    return;
+  }
+
+  const form = forms[formIndex];
+  const values = form.fields.filter((f) => f.testValue).map((f) => `${f.label}=${f.testValue}`).join(', ');
+  if (!confirm(`대상 사이트에 실제로 값을 입력하고 제출합니다.\n\n주소: ${url}\n폼: ${form.name} (${form.method})\n입력: ${values}\n\n진행할까요?`)) return;
+
+  const btn = $('#btnLiveVerify');
+  btn.disabled = true;
+  setStatus(`브라우저로 실제 제출하는 중… (${form.name})`);
+
+  try {
+    const data = await api('/api/live-verify', {
+      url, inventory: state.webInventory, overrides: collectOverrides(), formIndex,
+    });
+
+    const run = data.run;
+    // 관측 TC 는 기존 TC 뒤에 붙인다 — 정적 분석 결과를 지우면 안 된다
+    state.testCases = state.testCases.concat(data.testCases || []);
+    state.expanded.clear();
+    renderSummary({ summary: summarizeLocal(state.testCases), areas: [] });
+    renderTable();
+    setView('tc');
+
+    setStatus([
+      `실행 검증 완료 — 관측 TC ${(data.testCases || []).length}건 추가 (${data.elapsedMs}ms)`,
+      `입력: ${run.filled.map((f) => `${f.label}=${f.value}`).join(', ') || '없음'}`,
+      `${run.submitAction} → ${run.navigated ? `이동: ${run.after.url}` : '주소 변경 없음'}${run.httpStatus != null ? ` (HTTP ${run.httpStatus})` : ''}`,
+      run.valueInUrl.length ? `✔ 입력값이 조회 조건으로 전달됨 (${run.valueInUrl.join(', ')})` : '',
+      run.after.results.statedCounts.length ? `결과 표기: ${run.after.results.statedCounts.join(' · ')}` : '',
+      run.after.results.largestList ? `목록 항목 ${run.after.results.largestList}개 관측` : '',
+      run.skipped.length ? `⚠ 자동 입력 못 한 필드 ${run.skipped.length}개 — 수동 확인 TC 로 추가됨` : '',
+      run.pageErrors.length || run.consoleErrors.length
+        ? `⚠ 스크립트 오류 ${run.pageErrors.length + run.consoleErrors.length}건 관측`
+        : '',
+      '※ 관측값은 현재 동작(기준선)입니다. 기획 의도와 맞는지는 QA 가 판단하세요.',
+    ].filter(Boolean).join('\n'), 'ok');
+  } catch (err) {
+    setStatus(`실행 검증 실패: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** TC 배열을 요약 통계로 (서버 왕복 없이 표 상단 숫자를 갱신하기 위해) */
+function summarizeLocal(list) {
+  const byType = {};
+  const byPriority = {};
+  list.forEach((tc) => {
+    byType[tc.type] = (byType[tc.type] || 0) + 1;
+    byPriority[tc.priority] = (byPriority[tc.priority] || 0) + 1;
+  });
+  return { total: list.length, byType, byPriority };
 }
 
 /** 페이지에서 처음 관측한 상태로 되돌린다 */

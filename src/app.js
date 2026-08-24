@@ -16,6 +16,9 @@ const { buildInventory } = require('./web/inventory');
 const { buildWebTestCases } = require('./web/webTestCases');
 const { buildWebSummary } = require('./web/webSummary');
 const { applyOverrides, sanitizeInventory } = require('./web/overrides');
+const { browserEnabled, browserSupport } = require('./web/browser');
+const { renderInventory, runFormCase } = require('./web/liveRun');
+const { buildLiveTestCases } = require('./web/liveTestCases');
 const auth = require('./auth');
 const { limiter } = require('./ratelimit');
 const ai = require('./ai');
@@ -167,6 +170,7 @@ function createApp() {
       upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
       // PDF 처리에 쓰는 DOM 구현 — "DOMMatrix is not defined" 류 문제를 바로 진단하기 위한 정보
       pdf: { dom: domSupport().source, nativeCanvas: domSupport().native, worker: domSupport().worker },
+      browser: browserSupport(),
       sessionHours: auth.sessionHours(),
     });
   });
@@ -344,11 +348,63 @@ function createApp() {
     message: '웹사이트 분석 요청이 너무 많습니다.',
   });
 
+  // 실행 검증은 대상 사이트에 실제 입력·제출을 보낸다. 분석보다 더 조인다.
+  const liveLimiter = limiter({
+    name: 'live', limit: 5, windowMs: 5 * 60 * 1000,
+    message: '실행 검증 요청이 너무 많습니다. 대상 사이트에 실제 요청을 보내는 기능이라 한도가 낮습니다.',
+  });
+
   app.post('/api/analyze-url', webLimiter, async (req, res) => {
     const url = req.body && (req.body.url || req.body.link);
     if (typeof url !== 'string' || !url.trim()) return badRequest(res, '분석할 주소를 입력해 주세요.');
 
+    let renderFallbackNote = null;
+
     const started = Date.now();
+
+    // 브라우저 렌더링 분석 — JS 로 그려지는 화면(SPA)을 보기 위한 선택 경로.
+    // 실패하면 정적 분석으로 되돌아간다. 이 기능 때문에 전체가 죽으면 안 된다.
+    const wantRender = Boolean(req.body && req.body.render);
+    if (wantRender && browserEnabled()) {
+      try {
+        const live = await renderInventory(url);
+        const testCases = buildWebTestCases(live.inventory);
+        logMeta('web.rendered', {
+          host: new URL(live.page.url).hostname,
+          forms: live.inventory.interaction.forms.length,
+          tc: testCases.length,
+          consoleErrors: live.observations.consoleErrors.length,
+          ms: Date.now() - started,
+        });
+        return res.json({
+          ok: true,
+          generatedAt: new Date().toISOString(),
+          elapsedMs: Date.now() - started,
+          renderedByBrowser: true,
+          page: {
+            url,
+            finalUrl: live.page.url,
+            status: live.page.status,
+            title: live.page.title,
+            bytes: null,
+            redirects: [],
+            truncated: false,
+          },
+          observations: live.observations,
+          inventory: live.inventory,
+          testCases,
+          specSummary: buildWebSummary(live.inventory, testCases),
+          summary: summarize(testCases),
+          areas: [...new Set(testCases.map((tc) => tc.area))],
+        });
+      } catch (err) {
+        logMeta('web.renderFailed', { ms: Date.now() - started });
+        renderFallbackNote = `브라우저 렌더링 분석에 실패해 정적 HTML 분석으로 진행했습니다: ${err.message}`;
+      }
+    } else if (wantRender) {
+      renderFallbackNote = '브라우저 렌더링 분석이 서버에서 꺼져 있어 정적 HTML 분석으로 진행했습니다. (SPECTOTC_BROWSER=1)';
+    }
+
     let page;
     try {
       page = await fetchPage(url);
@@ -374,6 +430,8 @@ function createApp() {
         ok: true,
         generatedAt: new Date().toISOString(),
         elapsedMs: Date.now() - started,
+        renderedByBrowser: false,
+        renderFallbackNote,
         page: {
           url: page.url,
           finalUrl: page.finalUrl,
@@ -399,6 +457,79 @@ function createApp() {
    * 분석 결과에 QA 조건을 반영해 TC 만 다시 만든다.
    * 페이지를 다시 가져오지 않으므로(네트워크·레이트리밋 소모 없음) 조건을 고쳐가며 반복해서 쓸 수 있다.
    */
+  /**
+   * 실제로 폼에 값을 넣고 제출해 결과를 관측한다.
+   *
+   * 이 기능만 유일하게 **대상 사이트의 상태를 바꿀 수 있다.** 그래서 3중 게이트를 둔다.
+   *   1) SPECTOTC_LIVE_SUBMIT=1      기능 자체를 켜야 한다
+   *   2) SPECTOTC_LIVE_ALLOW_HOSTS   검증 권한이 있는 도메인만
+   *   3) GET 폼만 (POST 는 SPECTOTC_LIVE_ALLOW_POST=1 을 추가로 요구)
+   * 임의의 공개 사이트에 가입·문의·로그인을 자동 제출하는 도구가 되지 않게 하기 위한 것이다.
+   */
+  app.post('/api/live-verify', liveLimiter, async (req, res) => {
+    const body = req.body || {};
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) return badRequest(res, '검증할 주소를 입력해 주세요.');
+
+    if (!browserEnabled()) {
+      return badRequest(res, '브라우저 실행이 서버에서 꺼져 있습니다. SPECTOTC_BROWSER=1 을 설정하세요.');
+    }
+
+    let inventory;
+    try {
+      inventory = sanitizeInventory(body.inventory);
+    } catch (err) {
+      return badRequest(res, err.message);
+    }
+
+    const { inventory: merged } = applyOverrides(inventory, body.overrides || {});
+    const formIndex = Number(body.formIndex || 0);
+    const form = merged.interaction.forms[formIndex];
+    if (!form) return badRequest(res, '해당 폼을 찾을 수 없습니다.');
+
+    // 넣을 값은 QA 가 지정한 테스트 값을 그대로 쓴다. 없으면 실행할 의미가 없다.
+    const inputs = form.fields
+      .map((f, index) => ({ index, value: f.testValue }))
+      .filter((x) => x.value);
+    if (!inputs.length) {
+      return badRequest(res, '실행할 값이 없습니다. 폼 편집기의 [정상 테스트 값] 칸에 실제로 입력할 값을 적어주세요.');
+    }
+
+    const started = Date.now();
+    let run;
+    try {
+      run = await runFormCase(url, form, inputs, {
+        label: form.condition ? `${form.condition} 조건에서 실행` : '지정한 값으로 실행',
+      });
+    } catch (err) {
+      logMeta('live.failed', { ms: Date.now() - started });
+      return badRequest(res, err.message);
+    }
+
+    const testCases = buildLiveTestCases(merged, [run]);
+
+    logMeta('live.ok', {
+      host: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+      method: form.method,
+      filled: run.filled.length,
+      skipped: run.skipped.length,
+      navigated: run.navigated,
+      status: run.httpStatus,
+      tc: testCases.length,
+      ms: Date.now() - started,
+    });
+
+    res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - started,
+      run,
+      testCases,
+      summary: summarize(testCases),
+      areas: [...new Set(testCases.map((tc) => tc.area))],
+    });
+  });
+
   app.post('/api/web-testcases', generateLimiter, (req, res) => {
     const body = req.body || {};
     let inventory;
