@@ -581,6 +581,205 @@ test('지원하지 않는 형식은 명확한 오류를 낸다', async () => {
   await assert.rejects(() => extractText(Buffer.alloc(0), 'a.md'), /비어 있습니다/);
 });
 
+/* --------------------------------------------------- 웹사이트 화면 분석 */
+
+const { buildInventory } = require('../src/web/inventory');
+const { buildWebTestCases } = require('../src/web/webTestCases');
+const { buildWebSummary } = require('../src/web/webSummary');
+const { normalizeUrl, isPrivateAddress } = require('../src/web/fetchPage');
+
+const PAGE_HTML = [
+  '<!DOCTYPE html><html lang="ko"><head>',
+  '<title>회원 가입 - 예시몰</title>',
+  '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+  '<meta name="description" content="예시몰 회원 가입" />',
+  '</head><body>',
+  '<h1>회원 가입</h1><h2>계정 정보</h2>',
+  '<form action="/signup" method="post">',
+  '  <label for="email">이메일</label>',
+  '  <input id="email" name="email" type="email" required maxlength="60" />',
+  '  <label for="pw">비밀번호</label>',
+  '  <input id="pw" name="pw" type="password" required minlength="8" maxlength="20" />',
+  '  <label for="nick">닉네임</label>',
+  '  <input id="nick" name="nick" type="text" maxlength="12" pattern="[A-Za-z0-9가-힣]+" />',
+  '  <input name="avatar" type="file" />',
+  '  <select name="grade"><option>일반</option><option>기업</option></select>',
+  '  <textarea name="intro" maxlength="200"></textarea>',
+  '  <button type="submit">가입하기</button>',
+  '</form>',
+  '<form action="/search" method="get"><input name="q" type="search" /><button>검색</button></form>',
+  '<a href="/terms">이용약관</a><a href="/privacy">개인정보처리방침</a>',
+  '<a href="https://external.example.com" target="_blank">외부 링크</a>',
+  '<a href="#">빈 링크</a>',
+  '<img src="/logo.png" /><img src="/hero.png" alt="히어로" />',
+  '<p>가입 절차를 안내합니다. 필수 항목을 모두 입력해 주세요.</p>',
+  '</body></html>',
+].join('\n');
+
+test('HTML 에서 폼·입력 제약을 인벤토리로 뽑는다', () => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+
+  assert.equal(inv.page.title, '회원 가입 - 예시몰');
+  assert.equal(inv.page.lang, 'ko');
+  assert.equal(inv.page.hasViewport, true);
+  assert.equal(inv.rendering.jsRendered, false);
+
+  assert.equal(inv.interaction.forms.length, 2);
+  const signup = inv.interaction.forms[0];
+  assert.equal(signup.method, 'POST');
+  assert.equal(signup.action, '/signup');
+  assert.equal(signup.hasFileUpload, true);
+
+  // label[for] 로 사람이 읽는 이름을 찾는다
+  const email = signup.fields.find((f) => f.name === 'email');
+  assert.equal(email.label, '이메일');
+  assert.equal(email.constraints.required, true);
+  assert.equal(email.constraints.maxLength, '60');
+
+  const pw = signup.fields.find((f) => f.name === 'pw');
+  assert.equal(pw.type, 'password');
+  assert.equal(pw.constraints.minLength, '8');
+
+  const nick = signup.fields.find((f) => f.name === 'nick');
+  assert.ok(nick.constraints.pattern, 'pattern 미수집');
+
+  // select / textarea 도 필드로 잡는다
+  assert.ok(signup.fields.some((f) => f.tag === 'select' && f.options === 2));
+  assert.ok(signup.fields.some((f) => f.tag === 'textarea'));
+
+  // 제출 버튼 라벨
+  assert.ok(signup.submits.includes('가입하기'));
+
+  // 검색 폼 판별
+  assert.equal(inv.interaction.forms[1].kind, 'search');
+
+  // 링크 분류와 문제 신호
+  assert.equal(inv.links.internalCount, 2);
+  assert.equal(inv.links.externalCount, 1);
+  assert.equal(inv.links.problems.emptyHref, 1);
+  assert.equal(inv.links.problems.targetBlankNoRel, 1);
+
+  // 접근성
+  assert.equal(inv.accessibility.images, 2);
+  assert.equal(inv.accessibility.missingAlt, 1);
+});
+
+test('로그인 폼과 JS 렌더링 페이지를 구분한다', () => {
+  const login = buildInventory('<html><body><form><input type="text" name="id"><input type="password" name="pw"><button>로그인</button></form></body></html>', 'https://a.example.com/');
+  assert.equal(login.interaction.forms[0].kind, 'login');
+  assert.equal(login.interaction.hasLogin, true);
+
+  // 본문이 거의 없고 스크립트만 많으면 JS 렌더링 위주로 본다
+  const spa = buildInventory('<html><body><div id="root"></div><script src="a.js"></script><script src="b.js"></script><script src="c.js"></script></body></html>', 'https://spa.example.com/');
+  assert.equal(spa.rendering.jsRendered, true);
+  assert.match(spa.rendering.note, /JS 렌더링/);
+
+  // form 태그 밖 입력도 놓치지 않는다 (SPA 에서 흔하다)
+  const orphan = buildInventory('<html><body><p>안내 문구가 충분히 길게 들어가 있어 본문으로 인식됩니다. 입력창은 form 밖에 있습니다.</p><input name="q" type="text"></body></html>', 'https://b.example.com/');
+  assert.equal(orphan.interaction.forms.length, 1);
+  assert.equal(orphan.interaction.forms[0].outsideForm, true);
+});
+
+test('인벤토리에서 TC 를 만든다 (기획서 TC 와 같은 구조)', () => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const tcs = buildWebTestCases(inv);
+
+  assert.ok(tcs.length >= 8, 'TC 가 너무 적음: ' + tcs.length);
+
+  // 기존 파이프라인(표·CSV·PDF)이 그대로 동작하도록 같은 필드를 갖춘다
+  for (const tc of tcs) {
+    assert.match(tc.tc_id, /^TC-[PFE]-\d{3}$/);
+    assert.match(tc.title, /^\[(정상|실패|경계)\] /);
+    assert.ok(tc.objective && tc.area);
+    for (const field of ['precondition', 'steps', 'expected']) {
+      assert.ok(Array.isArray(tc[field]) && tc[field].length > 0, field + ' 비어 있음: ' + tc.tc_id);
+    }
+    assert.ok(tc.requirement && tc.requirement.text, '근거 없음: ' + tc.tc_id);
+    assert.equal(tc.origin, 'web');
+    assert.ok(tc.tags.includes('web'));
+    assert.ok(['High', 'Med', 'Low'].includes(tc.priority));
+  }
+
+  const titles = tcs.map((t) => t.title).join(' | ');
+  assert.match(titles, /필수값 미입력/);
+  assert.match(titles, /형식에 맞지 않는/);
+  assert.match(titles, /경계값/);
+  assert.match(titles, /XSS/);
+  assert.match(titles, /허용되지 않는 파일/);
+  assert.match(titles, /검색어 경계/);
+  assert.match(titles, /모바일·태블릿/);
+  assert.match(titles, /접근성/);
+
+  // 경계값 TC 는 실제 제약값을 담아야 한다 (maxlength 20 → 21 도 확인)
+  const boundary = tcs.find((t) => t.tags.includes('boundary') && /비밀번호/.test(t.title));
+  assert.ok(boundary, '비밀번호 경계 TC 없음');
+  const joined = boundary.expected.join(' ');
+  assert.ok(/20 → 허용/.test(joined) && /21 → 거부/.test(joined), joined);
+});
+
+test('화면 분석 요약은 기획서 요약과 같은 형태를 채운다', () => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const tcs = buildWebTestCases(inv);
+  const sum = buildWebSummary(inv, tcs);
+
+  assert.match(sum.headline, /폼 2개/);
+  assert.ok(sum.overview.areas > 0);
+  assert.ok(sum.keyPoints.length >= 2);
+  assert.ok(sum.numericRules.length >= 3, '입력 제약이 수치 기준으로 안 들어감');
+  assert.ok(sum.numericRules.some((n) => /최대 60자/.test(n.criterion)));
+
+  // 확인 필요: alt 누락 · rel 누락 · 빈 링크 · accept 미지정
+  const riskTypes = sum.risks.map((r) => r.type + ':' + r.message).join(' | ');
+  assert.match(riskTypes, /alt 속성이 없는 이미지/);
+  assert.match(riskTypes, /noopener/);
+  assert.match(riskTypes, /accept/);
+
+  // 검증 분석서 6개 섹션 자리 채움
+  assert.equal(sum.qaPlan.checkpoints.length, 5);
+  assert.ok(sum.qaPlan.urls.length >= 2);
+  assert.match(sum.qaPlan.flow.mermaid, /^flowchart TD/);
+  assert.equal(sum.qaPlan.figma, null);
+  assert.match(sum.qaPlan.nonGoals[0].text, /기획 확인|알 수 없음/);
+  assert.match(sum.qaPlan.guarantee, /화면만 본 결과/);
+});
+
+test('SSRF — 내부망·비 http 주소를 차단한다', () => {
+  // 사설/예약 대역 판정
+  for (const ip of ['127.0.0.1', '10.0.0.1', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fe80::1', '::ffff:127.0.0.1']) {
+    assert.equal(isPrivateAddress(ip), true, ip + ' 를 차단하지 못했다');
+  }
+  for (const ip of ['8.8.8.8', '1.1.1.1', '223.130.200.107']) {
+    assert.equal(isPrivateAddress(ip), false, ip + ' 를 잘못 차단했다');
+  }
+
+  // URL 정규화 단계에서 걸러야 하는 것들
+  assert.throws(() => normalizeUrl('file:///etc/passwd'), /http\/https/);
+  assert.throws(() => normalizeUrl('ftp://example.com'), /http\/https/);
+  assert.throws(() => normalizeUrl('http://127.0.0.1/'), /사설 IP/);
+  assert.throws(() => normalizeUrl('http://192.168.0.1/'), /사설 IP/);
+  assert.throws(() => normalizeUrl('http://localhost/'), /공개된 도메인/);
+  assert.throws(() => normalizeUrl(''), /주소를 입력/);
+  assert.throws(() => normalizeUrl('not a url'), /형식이 올바르지/);
+
+  // 스킴 생략은 https 로 보정
+  assert.equal(normalizeUrl('www.naver.com').href, 'https://www.naver.com/');
+  assert.equal(normalizeUrl('https://a.example.com/x?y=1').pathname, '/x');
+});
+
+test('POST /api/analyze-url — 잘못된 입력을 400 으로 막는다', () => withServer(async (base) => {
+  const call = (body) => post(base, '/api/analyze-url', body);
+
+  assert.equal((await call({})).status, 400);
+  assert.equal((await call({ url: '   ' })).status, 400);
+
+  const blocked = await call({ url: 'http://169.254.169.254/latest/meta-data/' });
+  assert.equal(blocked.status, 400);
+  assert.match((await blocked.json()).error, /사설 IP|내부망/);
+
+  const scheme = await call({ url: 'file:///etc/passwd' });
+  assert.equal(scheme.status, 400);
+  assert.match((await scheme.json()).error, /http\/https/);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {

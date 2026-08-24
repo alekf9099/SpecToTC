@@ -477,6 +477,13 @@ function bind() {
     }
   });
 
+  $('#btnAnalyzeUrl').addEventListener('click', analyzeUrl);
+  $('#siteUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') analyzeUrl(); });
+  $('#btnUrlSample').addEventListener('click', () => {
+    $('#siteUrl').value = 'https://www.naver.com';
+    setStatus('예시 주소를 넣었습니다. [화면 분석 후 TC 생성] 을 눌러보세요.', 'ok');
+  });
+
   $('#btnDiff').addEventListener('click', runDiff);
   $('#btnDiffSample').addEventListener('click', async () => {
     const res = await fetch('/api/sample');

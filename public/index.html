@@ -30,6 +30,7 @@
     <section class="pane pane-input">
       <div class="tabs" role="tablist">
         <button class="tab is-active" data-tab="generate" role="tab">TC 생성</button>
+        <button class="tab" data-tab="web" role="tab">웹사이트 분석</button>
         <button class="tab" data-tab="diff" role="tab">기획서 비교(Diff)</button>
       </div>
 
@@ -64,6 +65,21 @@
           <button id="btnSample" class="btn">샘플 불러오기</button>
           <button id="btnClear" class="btn btn-ghost">지우기</button>
         </div>
+      </div>
+
+      <div class="tab-panel" data-panel="web">
+        <label class="field-label" for="siteUrl">분석할 웹사이트 주소</label>
+        <input id="siteUrl" class="input input-block" type="url" inputmode="url"
+               placeholder="https://www.naver.com" autocomplete="off" />
+        <p class="sum-note">
+          공개된 페이지의 화면 요소(폼 · 입력 제약 · 버튼 · 링크 · 접근성)를 읽어 테스트케이스를 만듭니다.
+          로그인이 필요한 화면이나 JS 로 그려지는 요소는 잡히지 않을 수 있습니다.
+        </p>
+        <div class="actions">
+          <button id="btnAnalyzeUrl" class="btn btn-primary">화면 분석 후 TC 생성</button>
+          <button id="btnUrlSample" class="btn">예시 주소</button>
+        </div>
+        <div id="webResult" class="diff-result"></div>
       </div>
 
       <div class="tab-panel" data-panel="diff">
@@ -156,6 +172,7 @@
     </section>
   </main>
 
+  <script src="./web-view.js"></script>
   <script src="./report.js"></script>
   <script src="./qa-plan-view.js"></script>
   <script src="./summary-view.js"></script>
