@@ -125,6 +125,9 @@ function renderFormEditor() {
   $('#btnRegenWebTc').addEventListener('click', regenerateWebTestCases);
   $('#btnLiveVerify').addEventListener('click', liveVerify);
   $('#btnResetWebOverrides').addEventListener('click', resetWebOverrides);
+
+  // 편집기는 health 응답보다 늦게 그려지므로, 그릴 때마다 서버 상태를 다시 반영한다
+  applyBrowserGating();
 }
 
 /** 화면에서 QA 가 입력한 값을 오버라이드 객체로 모은다 */
@@ -265,6 +268,14 @@ async function regenerateWebTestCases() {
  * 그래서 서버가 허용한 도메인에서만 되고, 실패 이유를 그대로 보여준다.
  */
 async function liveVerify() {
+  // 서버가 못 하는 일이면 확인 창을 띄우기 전에 멈춘다.
+  // 확인을 누른 뒤 실패하면 "혹시 제출된 건가?" 하는 불안이 남는다.
+  const blocked = browserBlockReason('submit');
+  if (blocked) {
+    setStatus(`실제 제출을 할 수 없습니다 — ${blocked}\n대신 [조건 반영해 TC 다시 생성] 으로 문서 TC 를 만들 수 있습니다.`, 'error');
+    return;
+  }
+
   const url = state.webUrl || $('#siteUrl').value.trim();
   if (!url) {
     setStatus('검증할 주소가 없습니다. 먼저 웹사이트를 분석해 주세요.', 'error');
@@ -281,8 +292,23 @@ async function liveVerify() {
   }
 
   const form = forms[formIndex];
-  const values = form.fields.filter((f) => f.testValue).map((f) => `${f.label}=${f.testValue}`).join(', ');
-  if (!confirm(`대상 사이트에 실제로 값을 입력하고 제출합니다.\n\n주소: ${url}\n폼: ${form.name} (${form.method})\n입력: ${values}\n\n진행할까요?`)) return;
+  // 라벨이 placeholder 문장인 경우가 많아 "라벨=값" 은 읽기 어렵다. 줄로 나눠 값을 따옴표로 감싼다.
+  const values = form.fields
+    .filter((f) => f.testValue)
+    .map((f) => `  · ${String(f.label).replace(/[.:]\s*$/, '')} → "${f.testValue}"`)
+    .join('\n');
+
+  const confirmed = confirm([
+    '대상 사이트에 실제로 값을 입력하고 제출합니다.',
+    '',
+    `주소   ${url}`,
+    `폼     ${form.name} (${form.method} ${form.action})`,
+    '입력값',
+    values,
+    '',
+    '진행할까요?',
+  ].join('\n'));
+  if (!confirmed) return;
 
   const btn = $('#btnLiveVerify');
   btn.disabled = true;

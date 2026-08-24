@@ -5,6 +5,7 @@ const state = {
   testCases: [],
   sourceName: null,
   webUrl: null,
+  browser: null,
   webInventory: null,
   webInventoryOriginal: null,
   specSummary: null,
@@ -567,32 +568,71 @@ async function loadHealth() {
 }
 
 /**
+ * 브라우저 실행이 왜 안 되는지를 한 문장으로. 가능하면 null.
+ *
+ * 서버가 못 하는 일을 화면에서 누를 수 있게 두면 안 된다. 특히 실행 검증은
+ * 확인 창까지 띄운 뒤 실패하므로, "실제로 제출된 건가?" 하는 불안을 남긴다.
+ */
+function browserBlockReason(kind) {
+  const b = state.browser;
+  if (!b) return '서버 상태를 아직 확인하지 못했습니다.';
+  if (!b.enabled) return '브라우저 실행이 서버에서 꺼져 있습니다 (SPECTOTC_BROWSER=1). Vercel 배포에서는 사용할 수 없습니다.';
+  if (!b.driverInstalled) return '브라우저 드라이버가 없습니다 (npm i --save-optional playwright-core).';
+  if (kind === 'submit') {
+    if (!b.submitEnabled) return '실제 제출이 서버에서 꺼져 있습니다 (SPECTOTC_LIVE_SUBMIT=1). Vercel 배포에서는 사용할 수 없습니다.';
+    if (!b.allowHosts) return '실행 검증 허용 도메인이 없습니다 (SPECTOTC_LIVE_ALLOW_HOSTS).';
+  }
+  return null;
+}
+
+/** 브라우저 기능 버튼을 서버 상태에 맞춰 잠근다 (편집기가 나중에 그려져도 적용) */
+function applyBrowserGating() {
+  const render = $('#optRender');
+  if (render) {
+    const why = browserBlockReason('render');
+    render.disabled = Boolean(why);
+    if (why) render.checked = false;
+    const wrap = $('#optRenderWrap');
+    if (wrap) {
+      wrap.title = why || '헤드리스 브라우저로 페이지를 열어 JS 로 그려지는 요소까지 분석합니다.';
+      wrap.classList.toggle('is-disabled', Boolean(why));
+    }
+  }
+
+  const live = $('#btnLiveVerify');
+  if (live) {
+    const why = browserBlockReason('submit');
+    live.disabled = Boolean(why);
+    live.title = why || '브라우저로 실제 값을 입력·제출하고 결과를 관측합니다.';
+  }
+}
+
+/**
  * 브라우저 실행 기능이 어디까지 가능한지 화면에 그대로 알려준다.
  * 버튼을 눌러보고 나서 "안 됩니다" 를 만나는 것보다, 미리 아는 게 낫다.
  */
 function renderBrowserBadge(browser) {
+  state.browser = browser || { enabled: false };
   const badge = $('#browserBadge');
-  const render = $('#optRender');
   if (!badge) return;
 
-  if (!browser || !browser.enabled) {
-    badge.textContent = '브라우저 실행 꺼짐 (SPECTOTC_BROWSER=1)';
+  const b = state.browser;
+  if (!b.enabled) {
+    badge.textContent = '브라우저 실행 꺼짐 — 정적 HTML 분석만 가능';
     badge.className = 'badge badge-muted';
-    if (render) { render.disabled = true; render.checked = false; }
-    return;
-  }
-  if (!browser.driverInstalled) {
+  } else if (!b.driverInstalled) {
     badge.textContent = '브라우저 드라이버 없음 (playwright-core 설치 필요)';
     badge.className = 'badge badge-off';
-    if (render) { render.disabled = true; render.checked = false; }
-    return;
+  } else if (b.submitEnabled && b.allowHosts) {
+    badge.textContent = `브라우저 실행 가능 · 실제 제출 허용 ${b.allowHosts}개 도메인${b.allowPost ? ' (POST 포함)' : ' (GET만)'}`;
+    badge.className = 'badge badge-ok';
+  } else {
+    badge.textContent = '브라우저 실행 가능 · 실제 제출은 꺼짐';
+    badge.className = 'badge badge-ok';
   }
 
-  badge.textContent = browser.submitEnabled
-    ? `브라우저 실행 가능 · 실제 제출 허용 ${browser.allowHosts}개 도메인${browser.allowPost ? ' (POST 포함)' : ' (GET만)'}`
-    : '브라우저 실행 가능 · 실제 제출은 꺼짐';
-  badge.className = 'badge badge-ok';
-  if (render) render.disabled = false;
+  badge.title = browserBlockReason('submit') || '렌더링 분석과 실행 검증을 모두 사용할 수 있습니다.';
+  applyBrowserGating();
 }
 
 bind();
