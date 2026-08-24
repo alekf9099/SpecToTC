@@ -4,6 +4,8 @@
 const state = {
   testCases: [],
   sourceName: null,
+  webInventory: null,
+  webInventoryOriginal: null,
   specSummary: null,
   aiSummary: null,
   view: 'tc',

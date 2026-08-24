@@ -93,7 +93,12 @@ async function analyzeUrl() {
     state.sourceName = data.page.finalUrl;
     state.expanded.clear();
 
+    // 편집기에서 조건을 지정하고 되돌릴 수 있게 원본과 작업본을 함께 둔다
+    state.webInventory = JSON.parse(JSON.stringify(data.inventory));
+    state.webInventoryOriginal = JSON.parse(JSON.stringify(data.inventory));
+
     renderWebResult(data);
+    renderFormEditor();
     renderSummary(data);
     renderTable();
     renderSpecSummary();
