@@ -37,7 +37,28 @@ function describeConstraints(field) {
   if (c.accept) out.push(`허용 형식 ${truncate(String(c.accept), 28)}`);
   if (c.readonly) out.push('읽기 전용');
   if (c.disabled) out.push('비활성');
+  if (field.rule) out.push(`QA 지정 규칙: ${field.rule}`);
   return out;
+}
+
+/** 근거 문구 — 페이지 관측인지 QA 지정인지 구분해 적는다 */
+function evidenceFor(form, extra) {
+  const parts = [`${form.method} ${form.action} · 필드 ${form.fields.length}개`];
+  if (form.outsideForm) parts.push('form 태그 밖(JS 처리 추정)');
+  if (form.condition) parts.push(`QA 지정 선행 조건: ${form.condition}`);
+  const userFields = form.fields.filter((f) => f.source === 'user' || f.source === 'user-added');
+  if (userFields.length) parts.push(`QA 지정/추가 필드 ${userFields.length}개`);
+  if (extra) parts.push(extra);
+  return parts.join(' · ');
+}
+
+/** 정상 입력 단계 문구 — QA 가 테스트 값을 준 필드는 그 값을 그대로 쓴다 */
+function validInputStep(form) {
+  const withValue = form.fields.filter((f) => f.testValue);
+  if (withValue.length) {
+    return withValue.slice(0, 6).map((f) => `${f.label} = ${f.testValue}`).join(', ');
+  }
+  return form.fields.slice(0, 8).map((f) => `${f.label}(${f.type})`).join(', ') || '입력 필드';
 }
 
 function buildWebTestCases(inventory, options = {}) {
@@ -102,18 +123,20 @@ function buildWebTestCases(inventory, options = {}) {
   (inventory.interaction.forms || []).forEach((form, fi) => {
     const area = form.name;
     const evidenceId = `WEB-FORM-${fi + 1}`;
-    const evidence = `${form.method} ${form.action} · 필드 ${form.fields.length}개`
-      + (form.outsideForm ? ' (form 태그 밖 — JS 처리 추정)' : '');
+    const evidence = evidenceFor(form);
     const required = form.fields.filter((f) => f.constraints && f.constraints.required);
     const fieldList = form.fields.slice(0, 8).map((f) => `${f.label}(${f.type})`).join(', ');
 
     // 정상 제출
     emit('Pass', area, {
-      title: '유효한 값으로 제출',
+      title: form.condition ? `${truncate(form.condition, 30)} 조건에서 유효한 값으로 제출` : '유효한 값으로 제출',
       objective: '정상 입력에서 제출이 성공하고 결과 화면이 명세대로 표시되는지 확인한다.',
-      precondition: base.concat(`대상 폼: ${form.method} ${form.action}`),
+      precondition: base
+        .concat(`대상 폼: ${form.method} ${form.action}`)
+        .concat(form.condition ? [`선행 조건 — ${form.condition}`] : []),
       steps: [
-        step('입력', `모든 필드에 유효한 값 — ${fieldList || '입력 필드'}`),
+        ...(form.condition ? [step('조건 설정', form.condition)] : []),
+        step('입력', `유효한 값 — ${validInputStep(form)}`),
         step('실행', form.submits[0] ? `"${form.submits[0]}" 클릭` : '제출'),
         step('확인', '결과 화면 · 서버 응답 · 저장된 값'),
       ],
@@ -130,8 +153,9 @@ function buildWebTestCases(inventory, options = {}) {
       emit('Fail', area, {
         title: `필수값 미입력 (${required.length}개)`,
         objective: '필수 항목이 비었을 때 제출이 차단되고 사유가 안내되는지 확인한다.',
-        precondition: base,
+        precondition: base.concat(form.condition ? [`선행 조건 — ${form.condition}`] : []),
         steps: [
+          ...(form.condition ? [step('조건 설정', form.condition)] : []),
           step('입력', `필수 항목을 공백으로 둠 — ${required.map((f) => f.label).slice(0, 6).join(', ')}`),
           step('실행', '제출'),
         ],
@@ -154,6 +178,60 @@ function buildWebTestCases(inventory, options = {}) {
         priority: 'Med',
         categories: ['화면 분석', '입력 검증'],
         tags: ['form', 'validation', 'spec-gap'],
+      });
+    }
+
+    // QA 가 선행 조건을 지정했으면, 그 조건을 만족하지 않는 경로도 확인한다
+    if (form.condition) {
+      emit('Fail', area, {
+        title: `선행 조건 미충족(${truncate(form.condition, 28)} 아님) 상태에서 제출`,
+        objective: 'QA 가 지정한 선행 조건이 실제로 강제되는지 확인한다.',
+        precondition: base.concat(`${form.condition} 을 의도적으로 불충족 상태로 설정`),
+        steps: [
+          step('조건 설정', `${form.condition} — 불충족`),
+          step('입력', `유효한 값 — ${validInputStep(form)}`),
+          step('실행', '제출'),
+        ],
+        expected: ['제출이 차단되거나 접근 자체가 막힘', '사유 안내', '데이터 변경 없음'],
+        evidence: evidenceFor(form, 'QA 지정 조건 기반'),
+        evidenceId,
+        priority: 'High',
+        categories: ['화면 분석', '조건 분기', 'QA 지정'],
+        tags: ['form', 'negative-condition'],
+      });
+    }
+
+    // QA 가 자유 서술로 준 형식 규칙 — HTML 에 없는 사내 규칙 등
+    const ruled = form.fields.filter((f) => f.rule);
+    if (ruled.length) {
+      emit('Fail', area, {
+        title: `QA 지정 형식 규칙 위반 (${ruled.length}개 필드)`,
+        objective: '페이지 HTML 에는 없지만 실제로 적용돼야 하는 규칙이 지켜지는지 확인한다.',
+        precondition: base,
+        steps: ruled.slice(0, 6).map((f) => step('입력', `${f.label} ← 규칙 위반 값 (규칙: ${f.rule})`)),
+        expected: ruled.slice(0, 6).map((f) => `${f.label}: 규칙 위반 값 거부 + 사유 안내 (${truncate(f.rule, 40)})`),
+        evidence: evidenceFor(form, ruled.map((f) => `${f.label}: ${f.rule}`).join(' / ')),
+        evidenceId,
+        priority: 'High',
+        categories: ['화면 분석', '입력 검증', 'QA 지정'],
+        tags: ['form', 'validation', 'qa-rule'],
+      });
+    }
+
+    // QA 가 비고/조건을 적은 필드는 개별 확인 항목으로 남긴다
+    const noted = form.fields.filter((f) => f.note);
+    if (noted.length) {
+      emit('Edge Case', area, {
+        title: `QA 지정 조건 확인 (${noted.length}개 필드)`,
+        objective: 'QA 가 기록한 조건·예외가 실제 화면에서 성립하는지 확인한다.',
+        precondition: base,
+        steps: noted.slice(0, 6).map((f) => step('확인', `${f.label}: ${f.note}`)),
+        expected: noted.slice(0, 6).map((f) => `${f.label} — ${f.note} 조건이 명세대로 동작`),
+        evidence: evidenceFor(form, noted.map((f) => `${f.label}: ${f.note}`).join(' / ')),
+        evidenceId,
+        priority: 'Med',
+        categories: ['화면 분석', 'QA 지정'],
+        tags: ['form', 'qa-note'],
       });
     }
 
@@ -195,7 +273,7 @@ function buildWebTestCases(inventory, options = {}) {
         precondition: base.concat(`대상 필드: ${f.label} (${f.type})`),
         steps: points.map((p) => step('입력', p.split(' → ')[0] + ' 길이/값')),
         expected: points,
-        evidence: `${evidence} · ${f.name || f.label}: ${JSON.stringify(c)}`,
+        evidence: evidenceFor(form, `${f.name || f.label}: ${JSON.stringify(c)} (${f.source === 'user' || f.source === 'user-added' ? 'QA 지정' : '페이지 관측'})`),
         evidenceId,
         priority: 'Med',
         categories: ['화면 분석', '경계값'],

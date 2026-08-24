@@ -15,6 +15,7 @@ const { fetchPage } = require('./web/fetchPage');
 const { buildInventory } = require('./web/inventory');
 const { buildWebTestCases } = require('./web/webTestCases');
 const { buildWebSummary } = require('./web/webSummary');
+const { applyOverrides, sanitizeInventory } = require('./web/overrides');
 const auth = require('./auth');
 const { limiter } = require('./ratelimit');
 const ai = require('./ai');
@@ -392,6 +393,43 @@ function createApp() {
       logMeta('web.parseFailed', { ms: Date.now() - started });
       badRequest(res, `페이지를 분석하지 못했습니다: ${err.message}`);
     }
+  });
+
+  /**
+   * 분석 결과에 QA 조건을 반영해 TC 만 다시 만든다.
+   * 페이지를 다시 가져오지 않으므로(네트워크·레이트리밋 소모 없음) 조건을 고쳐가며 반복해서 쓸 수 있다.
+   */
+  app.post('/api/web-testcases', generateLimiter, (req, res) => {
+    const body = req.body || {};
+    let inventory;
+    try {
+      inventory = sanitizeInventory(body.inventory);
+    } catch (err) {
+      return badRequest(res, err.message);
+    }
+
+    const { inventory: merged, applied } = applyOverrides(inventory, body.overrides || {});
+    const testCases = buildWebTestCases(merged);
+    const specSummary = buildWebSummary(merged, testCases);
+
+    logMeta('web.regenerate', {
+      forms: merged.interaction.forms.length,
+      overrides: applied.fields,
+      added: applied.added,
+      conditions: applied.conditions,
+      tc: testCases.length,
+    });
+
+    res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      applied,
+      inventory: merged,
+      testCases,
+      specSummary,
+      summary: summarize(testCases),
+      areas: [...new Set(testCases.map((tc) => tc.area))],
+    });
   });
 
   /* ------------------------------------------------------- 기획서 요약 */

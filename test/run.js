@@ -780,6 +780,151 @@ test('POST /api/analyze-url — 잘못된 입력을 400 으로 막는다', () =>
   assert.equal(scheme.status, 400);
   assert.match((await scheme.json()).error, /http\/https/);
 }, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+/* -------------------------------------------- 폼 조건 지정(오버라이드) */
+
+const { applyOverrides, sanitizeInventory } = require('../src/web/overrides');
+
+test('applyOverrides — QA 가 지정한 조건이 페이지 관측값을 덮어쓴다', () => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const { inventory, applied } = applyOverrides(inv, {
+    forms: {
+      0: {
+        condition: '로그인한 회원만 접근 가능',
+        fields: {
+          0: { required: true, maxLength: 20, minLength: 8, rule: '사내 도메인만 허용', testValue: 'qa@muhayu.com', note: '쿠폰 있을 때만 활성' },
+        },
+        addedFields: [{ label: '쿠폰 코드', type: 'text', required: true, maxLength: 12 }],
+      },
+    },
+  });
+
+  const form = inventory.interaction.forms[0];
+  assert.equal(form.condition, '로그인한 회원만 접근 가능');
+  assert.equal(applied.conditions, 1);
+  assert.equal(applied.added, 1);
+  assert.ok(applied.fields >= 1);
+
+  const f = form.fields[0];
+  assert.equal(f.source, 'user');
+  assert.equal(f.constraints.required, true);
+  assert.equal(f.constraints.maxLength, 20);
+  assert.equal(f.constraints.minLength, 8);
+  assert.equal(f.rule, '사내 도메인만 허용');
+  assert.equal(f.testValue, 'qa@muhayu.com');
+
+  const added = form.fields[form.fields.length - 1];
+  assert.equal(added.label, '쿠폰 코드');
+  assert.equal(added.source, 'user-added');
+  assert.equal(added.constraints.maxLength, 12);
+
+  // 원본은 건드리지 않는다 — 초기화 버튼이 되돌릴 수 있어야 한다
+  assert.notEqual(inv.interaction.forms[0].condition, '로그인한 회원만 접근 가능');
+});
+
+test('applyOverrides — 지정한 조건이 TC 에 실제로 반영된다', () => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const before = buildWebTestCases(inv);
+
+  const { inventory } = applyOverrides(inv, {
+    forms: {
+      0: {
+        condition: '장바구니에 상품이 1개 이상',
+        fields: { 0: { maxLength: 20, rule: '사내 도메인만 허용', note: '가입 후 24시간 내에만 변경 가능' } },
+      },
+    },
+  });
+  const after = buildWebTestCases(inventory);
+
+  const tags = (list) => new Set(list.flatMap((tc) => tc.tags || []));
+  assert.ok(!tags(before).has('negative-condition'));
+  assert.ok(tags(after).has('negative-condition'), '선행 조건 미충족 TC 가 있어야 한다');
+  assert.ok(tags(after).has('qa-rule'), 'QA 지정 형식 규칙 TC 가 있어야 한다');
+  assert.ok(tags(after).has('qa-note'), 'QA 지정 비고 확인 TC 가 있어야 한다');
+  assert.ok(after.length > before.length);
+
+  // 정상 제출 TC 의 사전 조건에 지정한 선행 조건이 들어간다
+  const pass = after.find((tc) => tc.type === 'Pass' && /제출/.test(tc.title));
+  assert.match(pass.precondition.join(' '), /장바구니에 상품이 1개 이상/);
+
+  // 최대 길이를 QA 가 지정했으면 경계값 TC 근거에 "QA 지정" 으로 표시된다
+  const boundary = after.filter((tc) => tc.type === 'Edge Case' && /QA 지정/.test(tc.requirement.text || ''));
+  assert.ok(boundary.length >= 1);
+});
+
+test('sanitizeInventory — 이상한 입력을 막고 정상 입력은 통과시킨다', () => {
+  assert.throws(() => sanitizeInventory(null), /분석 결과/);
+  assert.throws(() => sanitizeInventory({ interaction: {} }), /분석 결과/);
+
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const clean = sanitizeInventory(JSON.parse(JSON.stringify(inv)));
+  assert.equal(clean.interaction.forms.length, inv.interaction.forms.length);
+  assert.ok(clean.page.url);
+
+  // 필드 수 상한을 넘기면 잘라낸다 (거대한 페이로드로 서버를 밀지 못하게)
+  const huge = JSON.parse(JSON.stringify(inv));
+  huge.interaction.forms[0].fields = Array.from({ length: 500 }, (_, i) => ({
+    tag: 'input', type: 'text', label: `필드${i}`, constraints: {},
+  }));
+  assert.ok(sanitizeInventory(huge).interaction.forms[0].fields.length <= 60);
+});
+
+test('POST /api/web-testcases — 페이지 재요청 없이 조건 반영 TC 를 만든다', () => withServer(async (base) => {
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+
+  const res = await post(base, '/api/web-testcases', {
+    inventory: inv,
+    overrides: { forms: { 0: { condition: '로그인한 회원만 접근 가능', fields: { 0: { maxLength: 20 } } } } },
+  });
+  assert.equal(res.status, 200);
+
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.applied.conditions, 1);
+  assert.ok(data.testCases.length > 0);
+  assert.ok(data.specSummary.headline);
+  assert.ok(data.testCases.some((tc) => (tc.tags || []).includes('negative-condition')));
+  assert.match(JSON.stringify(data.testCases), /로그인한 회원만 접근 가능/);
+
+  const bad = await post(base, '/api/web-testcases', { inventory: { nope: true } });
+  assert.equal(bad.status, 400);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+
+test('applyOverrides — 조건을 여러 번 다시 반영해도 QA 가 추가한 필드가 남는다', () => {
+  // 재생성은 서버가 돌려준 인벤토리를 다시 보내는 구조다. 왕복에서 QA 입력이
+  // 사라지면 조건을 고칠 때마다 추가한 필드를 다시 넣어야 하므로 반드시 보존돼야 한다.
+  const inv = buildInventory(PAGE_HTML, 'https://shop.example.com/signup');
+  const overrides = {
+    forms: {
+      0: {
+        condition: '로그인한 회원만 접근 가능',
+        fields: { 0: { required: true, maxLength: 30 } },
+        addedFields: [{ label: '쿠폰 코드', type: 'text', required: true, maxLength: 12 }],
+      },
+    },
+  };
+
+  let current = sanitizeInventory(JSON.parse(JSON.stringify(inv)));
+  let applied;
+  for (let round = 0; round < 3; round += 1) {
+    // 2회차부터는 추가 필드가 이미 인벤토리 안에 있으므로 addedFields 없이 보낸다
+    const send = round === 0 ? overrides : { forms: { 0: { condition: overrides.forms[0].condition, fields: overrides.forms[0].fields } } };
+    const out = applyOverrides(current, send);
+    applied = out.applied;
+    current = sanitizeInventory(out.inventory);
+
+    const fields = current.interaction.forms[0].fields;
+    const coupon = fields.find((f) => f.label === '쿠폰 코드');
+    assert.ok(coupon, `${round + 1}회차에서 추가한 필드가 사라졌다`);
+    assert.equal(coupon.source, 'user-added', '추가 출처가 유지돼야 한다');
+    assert.equal(coupon.constraints.maxLength, 12);
+    assert.equal(current.interaction.forms[0].condition, '로그인한 회원만 접근 가능');
+    assert.equal(applied.added, 1, '추가 필드는 매번 1개로 집계돼야 한다');
+    assert.equal(applied.conditions, 1);
+  }
+
+  // 추가 필드는 TC 에도 나타난다
+  assert.match(JSON.stringify(buildWebTestCases(current)), /쿠폰 코드/);
+});
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {

@@ -56,6 +56,7 @@ SpecToTC/
 │   │   ├── fetchPage.js      URL → HTML (SSRF 방어·리다이렉트 재검사)
 │   │   ├── inventory.js      HTML → 화면 요소 인벤토리
 │   │   ├── webTestCases.js   인벤토리 → TC
+│   │   ├── overrides.js      QA 가 지정한 폼 조건 반영 + 클라이언트 입력 검증
 │   │   └── webSummary.js     인벤토리 → 요약·검증 분석서
 │   ├── qaPlan.js             QA 검증 분석서 6개 고정 섹션 생성
 │   ├── extract/
@@ -68,9 +69,10 @@ SpecToTC/
 │   ├── diff.js               기획서 변경분 추출 + 회귀 TC 생성
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js /
-│                             summary-view.js / qa-plan-view.js / report.js / theme.js / robots.txt)
+│                             summary-view.js / qa-plan-view.js / report.js / web-view.js /
+│                             web-form-editor.js / theme.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (77 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (82 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -168,6 +170,45 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 생성된 TC 는 **기획서 기반 TC 와 완전히 같은 구조**라, 표·필터·CSV·PDF 내보내기·검증 분석서가 그대로 동작합니다.
 근거(`requirement`)에는 요구사항 문장 대신 **페이지에서 관측한 사실**이 들어갑니다
 (예: `POST /signup · 필드 6개`, `email: {"required":true,"maxLength":"60"}`).
+
+### 발견된 폼에 조건 지정 → TC 다시 생성
+
+페이지 HTML 은 **무엇이 있는지** 만 알려줍니다. 실제 규칙(최대 길이 · 필수 여부 · 사내 형식 규칙 ·
+선행 조건)은 대개 HTML 에 없고 **QA 가 알고 있습니다.** 분석 결과 아래 **발견된 폼 편집기** 에 그 조건을
+적고 `조건 반영해 TC 다시 생성` 을 누르면, 문서 기반 엔진과 같은 수준의 경계값·조건 분기 TC 가 나옵니다.
+
+| 지정 항목 | 추가로 만들어지는 TC |
+|---|---|
+| 폼의 **선행 조건** (예: `로그인한 회원만 접근 가능`) | 조건 충족 상태의 정상 제출 + **조건 미충족 상태에서 차단되는지** (`negative-condition`) |
+| **필수 / 최소 / 최대 길이** | 지정값 기준 경계값 ±1 (근거에 `(QA 지정)` 으로 표기) |
+| **형식 규칙** (자유 서술, 예: `사내 도메인만 허용`) | 규칙 위반 값 거부 확인 (`qa-rule`) |
+| **정상 테스트 값** | 정상 제출 TC 의 입력 단계에 실제 값이 그대로 들어감 |
+| **조건·비고** | QA 가 기록한 예외가 성립하는지 확인 (`qa-note`) |
+| **필드 추가** | JS 로 그려져 정적 분석에 잡히지 않은 필드도 직접 넣어 TC 생성 |
+
+- QA 가 지정한 값이 페이지 관측값보다 **우선**합니다 (실제 규칙을 아는 쪽이 QA 이므로).
+- 재생성은 **페이지를 다시 가져오지 않습니다.** 조건을 고쳐가며 몇 번을 눌러도 네트워크·레이트리밋을
+  소모하지 않고, 지정한 조건과 추가한 필드는 재생성 왕복에서 유지됩니다.
+- `지정한 조건 초기화` 는 처음 관측한 상태로 되돌립니다.
+
+```jsonc
+POST /api/web-testcases          // 페이지 재요청 없이 TC 만 다시 만든다
+{
+  "inventory": { /* /api/analyze-url 이 준 inventory 를 그대로 */ },
+  "overrides": {
+    "forms": {
+      "0": {
+        "condition": "로그인한 회원만 접근 가능",
+        "fields": { "0": { "required": true, "maxLength": 30, "rule": "사내 도메인만 허용", "testValue": "qa@muhayu.com", "note": "가입 후 24시간 내에만 변경" } },
+        "addedFields": [{ "label": "쿠폰 코드", "type": "text", "required": true, "maxLength": 12 }]
+      }
+    }
+  }
+}
+```
+
+응답: `applied`(지정한 조건 수 · 추가 필드 수 · 선행 조건 수) · `inventory`(반영된 인벤토리) ·
+`testCases` · `specSummary` · `summary` · `areas`
 
 ### 분석 한계 — 반드시 알고 쓰세요
 
@@ -440,6 +481,10 @@ curl -s -X POST http://localhost:3000/api/extract-text \
 
 Dice 계수 유사도로 문장을 매칭해 **추가 / 수정 / 삭제 / 동일**로 분류하고, 수정 건은 무엇이 바뀌었는지(경계값·재시도 횟수·조건절·분류·영역) 문장으로 알려줍니다.
 변경·추가된 요구사항에 대해서만 `regressionTestCases`(태그 `regression`)를 생성하므로 기획 변경 시 회귀 범위를 바로 잡을 수 있습니다.
+
+### `POST /api/analyze-url` · `POST /api/web-testcases`
+
+웹사이트 화면 분석과 QA 조건 반영 재생성. 5장 참고.
 
 ### 기타
 

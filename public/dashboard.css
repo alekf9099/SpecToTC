@@ -736,3 +736,26 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
   margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; line-height: 1.7;
   color: var(--on-amber); background: hsl(38 92% 60% / 0.10); border: 1px solid hsl(38 92% 60% / 0.30);
 }
+
+/* 발견된 폼 편집기 */
+.web-editor { margin-top: 16px; }
+.wf-intro { margin-bottom: 12px; }
+.wf-form {
+  padding: 14px; margin-bottom: 12px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.wf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12.5px; }
+.wf-table { font-size: 11px; }
+.wf-table th { white-space: nowrap; }
+.wf-table td { padding: 5px 6px; vertical-align: middle; }
+.wf-table .input { width: 100%; min-width: 90px; padding: 5px 7px; font-size: 11px; }
+.wf-table .wf-num { min-width: 62px; }
+.wf-name { min-width: 130px; line-height: 1.5; }
+.wf-name b { display: block; }
+.wf-name .mono { font-size: 10px; }
+.wf-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-muted); cursor: pointer; }
+.wf-check input { accent-color: var(--primary); margin: 0; }
+.wf-added { background: hsl(163 72% 50% / 0.07); }
+.wf-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.wf-add .input { flex: 1; min-width: 160px; }
+.wf-actions { margin-top: 4px; }
