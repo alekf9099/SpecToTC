@@ -4,29 +4,46 @@
    보조 포인트는 민트. 모든 색은 HSL 토큰으로 관리한다.
    ========================================================================= */
 :root {
-  /* surfaces */
-  --bg:            hsl(226 33% 7.5%);
-  --bg-glow-1:     hsl(243 75% 62% / 0.10);
-  --bg-glow-2:     hsl(160 70% 50% / 0.06);
-  --card:          hsl(225 27% 10.5%);
-  --card-hover:    hsl(225 25% 13%);
-  --muted:         hsl(225 24% 14.5%);
-  --border:        hsl(226 20% 20%);
-  --border-strong: hsl(226 20% 27%);
+  /* ---- 색은 전부 토큰으로 관리한다. 라이트가 기본, 다크는 아래 블록에서 덮어쓴다. ---- */
+
+  /* surfaces — 낮은 값이 아래(배경), 높은 값이 위(버튼) */
+  --bg:            hsl(220 24% 97%);
+  --bg-glow-1:     hsl(243 76% 63% / 0.07);
+  --bg-glow-2:     hsl(163 72% 50% / 0.06);
+  --topbar-bg:     hsl(0 0% 100% / 0.82);
+  --surface:       hsl(0 0% 100%);
+  --surface-lo:    hsl(220 30% 99%);
+  --surface-2:     hsl(220 28% 98%);
+  --surface-3:     hsl(220 24% 96%);
+  --sunken:        hsl(220 26% 97.5%);
+  --muted:         hsl(220 24% 95%);
+  --elevated:      hsl(0 0% 100%);
+  --elevated-hi:   hsl(220 30% 99%);
+  --border:        hsl(220 16% 87%);
+  --border-strong: hsl(220 14% 78%);
+  --divider:       hsl(220 18% 92%);
 
   /* text */
-  --fg:            hsl(213 30% 95%);
-  --fg-muted:      hsl(220 13% 63%);
-  --fg-subtle:     hsl(220 11% 48%);
+  --fg:            hsl(224 24% 16%);
+  --fg-muted:      hsl(222 14% 36%);
+  --fg-subtle:     hsl(222 12% 44%);
+  --fg-faint:      hsl(222 10% 62%);
 
-  /* accents */
-  --primary:       hsl(243 76% 63%);
-  --primary-hi:    hsl(243 80% 70%);
-  --primary-lo:    hsl(245 70% 55%);
-  --violet:        hsl(263 74% 65%);
-  --mint:          hsl(163 72% 50%);
-  --amber:         hsl(38 92% 60%);
-  --rose:          hsl(352 80% 63%);
+  /* accents — 두 테마 공용 */
+  --primary:       hsl(243 76% 58%);
+  --primary-hi:    hsl(243 80% 64%);
+  --primary-lo:    hsl(245 70% 50%);
+  --violet:        hsl(263 74% 60%);
+  --mint:          hsl(163 72% 40%);
+  --amber:         hsl(38 92% 48%);
+  --rose:          hsl(352 76% 55%);
+
+  /* 강조색 위에 얹는 글자색 (알파 배경 위에서 읽혀야 한다) */
+  --on-mint:       hsl(163 72% 26%);
+  --on-rose:       hsl(352 68% 40%);
+  --on-amber:      hsl(33 84% 32%);
+  --on-indigo:     hsl(243 62% 46%);
+  --on-violet:     hsl(263 58% 46%);
 
   /* radii & motion */
   --radius:        14px;
@@ -36,10 +53,99 @@
   --dur:           170ms;
 
   /* shadows */
-  --shadow-sm:  0 1px 2px hsl(226 40% 3% / 0.4);
-  --shadow-md:  0 4px 14px -4px hsl(226 40% 3% / 0.6), 0 1px 2px hsl(226 40% 3% / 0.4);
-  --shadow-lg:  0 12px 32px -10px hsl(226 40% 3% / 0.7);
-  --ring:       0 0 0 3px hsl(243 76% 63% / 0.30);
+  --shadow-sm:  0 1px 2px hsl(224 30% 30% / 0.10);
+  --shadow-md:  0 4px 14px -4px hsl(224 30% 30% / 0.14), 0 1px 2px hsl(224 30% 30% / 0.08);
+  --shadow-lg:  0 12px 32px -10px hsl(224 30% 30% / 0.20);
+  --ring:       0 0 0 3px hsl(243 76% 63% / 0.28);
+}
+
+/* ----------------------------------------------------------------- 다크 테마
+   완전한 블랙 대신 네이비-차콜. 이전보다 한 단계 밝혀 대비를 낮췄다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:            hsl(226 26% 12%);
+    --bg-glow-1:     hsl(243 76% 63% / 0.12);
+    --bg-glow-2:     hsl(163 72% 50% / 0.07);
+    --topbar-bg:     hsl(226 26% 12% / 0.78);
+    --surface:       hsl(225 22% 16%);
+    --surface-lo:    hsl(225 22% 15%);
+    --surface-2:     hsl(225 21% 18%);
+    --surface-3:     hsl(225 20% 20%);
+    --sunken:        hsl(226 26% 12.5%);
+    --muted:         hsl(225 19% 21%);
+    --elevated:      hsl(225 18% 24%);
+    --elevated-hi:   hsl(225 17% 28%);
+    --border:        hsl(226 15% 28%);
+    --border-strong: hsl(226 14% 36%);
+    --divider:       hsl(226 15% 24%);
+
+    --fg:            hsl(213 30% 95%);
+    --fg-muted:      hsl(220 15% 72%);
+    --fg-subtle:     hsl(220 14% 65%);
+    --fg-faint:      hsl(220 10% 45%);
+
+    --primary:       hsl(243 82% 70%);
+    --primary-hi:    hsl(243 88% 76%);
+    --primary-lo:    hsl(245 72% 60%);
+    --violet:        hsl(263 78% 72%);
+    --mint:          hsl(163 62% 55%);
+    --amber:         hsl(38 88% 65%);
+    --rose:          hsl(352 82% 70%);
+
+    --on-mint:       hsl(163 62% 74%);
+    --on-rose:       hsl(352 88% 82%);
+    --on-amber:      hsl(38 90% 76%);
+    --on-indigo:     hsl(243 90% 84%);
+    --on-violet:     hsl(263 88% 86%);
+
+    --shadow-sm:  0 1px 2px hsl(226 40% 4% / 0.5);
+    --shadow-md:  0 4px 14px -4px hsl(226 40% 4% / 0.6), 0 1px 2px hsl(226 40% 4% / 0.45);
+    --shadow-lg:  0 12px 32px -10px hsl(226 40% 4% / 0.7);
+    --ring:       0 0 0 3px hsl(243 82% 70% / 0.32);
+  }
+}
+
+/* 사용자가 직접 고른 다크 (OS 설정과 무관하게 적용) */
+:root[data-theme="dark"] {
+  --bg:            hsl(226 26% 12%);
+  --bg-glow-1:     hsl(243 76% 63% / 0.12);
+  --bg-glow-2:     hsl(163 72% 50% / 0.07);
+  --topbar-bg:     hsl(226 26% 12% / 0.78);
+  --surface:       hsl(225 22% 16%);
+  --surface-lo:    hsl(225 22% 15%);
+  --surface-2:     hsl(225 21% 18%);
+  --surface-3:     hsl(225 20% 20%);
+  --sunken:        hsl(226 26% 12.5%);
+  --muted:         hsl(225 19% 21%);
+  --elevated:      hsl(225 18% 24%);
+  --elevated-hi:   hsl(225 17% 28%);
+  --border:        hsl(226 15% 28%);
+  --border-strong: hsl(226 14% 36%);
+  --divider:       hsl(226 15% 24%);
+
+  --fg:            hsl(213 30% 95%);
+  --fg-muted:      hsl(220 15% 72%);
+  --fg-subtle:     hsl(220 14% 65%);
+  --fg-faint:      hsl(220 10% 45%);
+
+  --primary:       hsl(243 82% 70%);
+  --primary-hi:    hsl(243 88% 76%);
+  --primary-lo:    hsl(245 72% 60%);
+  --violet:        hsl(263 78% 72%);
+  --mint:          hsl(163 62% 55%);
+  --amber:         hsl(38 88% 65%);
+  --rose:          hsl(352 82% 70%);
+
+  --on-mint:       hsl(163 62% 74%);
+  --on-rose:       hsl(352 88% 82%);
+  --on-amber:      hsl(38 90% 76%);
+  --on-indigo:     hsl(243 90% 84%);
+  --on-violet:     hsl(263 88% 86%);
+
+  --shadow-sm:  0 1px 2px hsl(226 40% 4% / 0.5);
+  --shadow-md:  0 4px 14px -4px hsl(226 40% 4% / 0.6), 0 1px 2px hsl(226 40% 4% / 0.45);
+  --shadow-lg:  0 12px 32px -10px hsl(226 40% 4% / 0.7);
+  --ring:       0 0 0 3px hsl(243 82% 70% / 0.32);
 }
 
 * { box-sizing: border-box; }
@@ -66,14 +172,14 @@ body {
   background: var(--border-strong); border-radius: var(--radius-pill);
   border: 3px solid transparent; background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover { background: hsl(226 18% 36%); background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); background-clip: content-box; }
 
 /* ------------------------------------------------------------------ topbar */
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   padding: 16px 24px;
-  background: hsl(226 33% 7.5% / 0.72);
+  background: var(--topbar-bg);
   backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--border);
 }
@@ -94,11 +200,11 @@ body {
   background: var(--muted); border: 1px solid var(--border);
 }
 .badge-ok {
-  color: var(--mint); background: hsl(163 72% 50% / 0.10);
+  color: var(--on-mint); background: hsl(163 72% 50% / 0.10);
   border-color: hsl(163 72% 50% / 0.30);
 }
 .badge-off {
-  color: var(--rose); background: hsl(352 80% 63% / 0.10);
+  color: var(--on-rose); background: hsl(352 80% 63% / 0.10);
   border-color: hsl(352 80% 63% / 0.30);
 }
 
@@ -117,7 +223,7 @@ body {
 .pane {
   display: flex; flex-direction: column; min-height: 0; height: 100%;
   padding: 20px; gap: 4px;
-  background: linear-gradient(180deg, var(--card), hsl(225 27% 9.5%));
+  background: linear-gradient(180deg, var(--surface), var(--surface-lo));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
@@ -126,7 +232,7 @@ body {
 /* -------------------------------------------------------------------- tabs */
 .tabs {
   display: flex; gap: 4px; margin-bottom: 16px; padding: 4px;
-  background: hsl(226 26% 8%); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--sunken); border: 1px solid var(--border); border-radius: 12px;
 }
 .tab {
   flex: 1; padding: 8px 12px; border: 0; cursor: pointer;
@@ -134,10 +240,10 @@ body {
   background: transparent; color: var(--fg-subtle);
   transition: color var(--dur) ease, background var(--dur) ease, box-shadow var(--dur) ease;
 }
-.tab:hover { color: var(--fg-muted); background: hsl(226 22% 14% / 0.7); }
+.tab:hover { color: var(--fg-muted); background: var(--muted); }
 .tab.is-active {
   color: var(--fg);
-  background: linear-gradient(180deg, hsl(226 22% 19%), hsl(226 22% 15%));
+  background: linear-gradient(180deg, var(--elevated-hi), var(--elevated));
   box-shadow: var(--shadow-sm), inset 0 1px 0 hsl(0 0% 100% / 0.06);
 }
 .tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; }
@@ -147,25 +253,25 @@ body {
 .dropzone {
   position: relative; margin-bottom: 12px; padding: 18px 16px;
   border: 1.5px dashed var(--border-strong); border-radius: 12px;
-  background: hsl(226 26% 9% / 0.6); text-align: center; cursor: pointer;
+  background: var(--sunken); text-align: center; cursor: pointer;
   transition: border-color var(--dur) ease, background var(--dur) ease, transform var(--dur) var(--ease);
 }
-.dropzone:hover { border-color: hsl(243 76% 63% / 0.55); background: hsl(243 40% 14% / 0.35); }
+.dropzone:hover { border-color: hsl(243 76% 63% / 0.55); background: hsl(243 76% 63% / 0.08); }
 .dropzone.is-drag {
-  border-color: var(--primary); background: hsl(243 60% 18% / 0.5);
+  border-color: var(--primary); background: hsl(243 76% 63% / 0.14);
   transform: scale(1.012); box-shadow: var(--ring);
 }
 .dropzone.is-busy { opacity: 0.7; pointer-events: none; }
 .dropzone-icon {
   display: grid; place-items: center; width: 34px; height: 34px; margin: 0 auto 8px;
-  border-radius: 10px; font-size: 16px; color: var(--primary-hi);
+  border-radius: 10px; font-size: 16px; color: var(--on-indigo);
   background: hsl(243 76% 63% / 0.13); border: 1px solid hsl(243 76% 63% / 0.26);
 }
 .dropzone-title { margin: 0; font-size: 13px; font-weight: 550; }
 .dropzone-hint { margin: 3px 0 0; font-size: 11.5px; color: var(--fg-subtle); }
 .link {
   padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-size: inherit;
-  color: var(--primary-hi); text-decoration: underline; text-underline-offset: 2px;
+  color: var(--on-indigo); text-decoration: underline; text-underline-offset: 2px;
 }
 .file-chip {
   display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;
@@ -178,7 +284,7 @@ body {
   border: 0; background: none; color: var(--fg-subtle); cursor: pointer;
   font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px;
 }
-.file-chip button:hover { color: var(--rose); background: hsl(352 80% 63% / 0.12); }
+.file-chip button:hover { color: var(--on-rose); background: hsl(352 80% 63% / 0.12); }
 
 /* ------------------------------------------------------------------ inputs */
 .field-label {
@@ -188,7 +294,7 @@ body {
 
 textarea {
   width: 100%; flex: 1; min-height: 170px; resize: vertical; padding: 14px;
-  color: var(--fg); background: hsl(226 28% 6.5%);
+  color: var(--fg); background: var(--sunken);
   border: 1px solid var(--border); border-radius: 12px;
   font: 12.5px/1.7 ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
   transition: border-color var(--dur) ease, box-shadow var(--dur) ease;
@@ -211,13 +317,13 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
   background: var(--muted); border: 1px solid var(--border);
   transition: color var(--dur) ease, border-color var(--dur) ease, background var(--dur) ease;
 }
-.options label:hover { color: var(--fg); border-color: var(--border-strong); background: var(--card-hover); }
+.options label:hover { color: var(--fg); border-color: var(--border-strong); background: var(--surface-3); }
 .options label:has(input:checked) {
-  color: var(--fg); border-color: hsl(243 76% 63% / 0.45); background: hsl(243 60% 20% / 0.4);
+  color: var(--fg); border-color: hsl(243 76% 63% / 0.45); background: hsl(243 76% 63% / 0.12);
 }
 .options label:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 .options input { accent-color: var(--primary); width: 13px; height: 13px; margin: 0; }
-.opt-ai:has(input:checked) { border-color: hsl(263 74% 65% / 0.5) !important; background: hsl(263 60% 22% / 0.4) !important; }
+.opt-ai:has(input:checked) { border-color: hsl(263 74% 65% / 0.5) !important; background: hsl(263 74% 65% / 0.12) !important; }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -225,7 +331,7 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 .btn {
   padding: 9px 16px; border-radius: var(--radius-sm); cursor: pointer;
   font: inherit; font-size: 13px; font-weight: 550; color: var(--fg);
-  background: linear-gradient(180deg, hsl(226 22% 18%), hsl(226 24% 14%));
+  background: linear-gradient(180deg, var(--elevated), var(--muted));
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-sm), inset 0 1px 0 hsl(0 0% 100% / 0.05);
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) ease,
@@ -233,8 +339,8 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 }
 .btn:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  background: linear-gradient(180deg, hsl(226 22% 22%), hsl(226 24% 17%));
-  border-color: hsl(226 20% 34%);
+  background: linear-gradient(180deg, var(--elevated-hi), var(--elevated));
+  border-color: var(--border-strong);
   box-shadow: var(--shadow-md), inset 0 1px 0 hsl(0 0% 100% / 0.07);
 }
 .btn:active:not(:disabled) { transform: translateY(0) scale(0.985); box-shadow: var(--shadow-sm); }
@@ -264,10 +370,10 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
   animation: rise var(--dur) var(--ease);
 }
 .status.is-error {
-  color: hsl(352 90% 82%); background: hsl(352 80% 63% / 0.10); border-color: hsl(352 80% 63% / 0.32);
+  color: var(--on-rose); background: hsl(352 80% 63% / 0.10); border-color: hsl(352 80% 63% / 0.32);
 }
 .status.is-ok {
-  color: hsl(163 70% 80%); background: hsl(163 72% 50% / 0.09); border-color: hsl(163 72% 50% / 0.30);
+  color: var(--on-mint); background: hsl(163 72% 50% / 0.09); border-color: hsl(163 72% 50% / 0.30);
 }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -295,12 +401,12 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 }
 .chip:hover { color: var(--fg); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .chip.is-active {
-  color: var(--fg); background: hsl(243 60% 22% / 0.55);
+  color: var(--fg); background: hsl(243 76% 63% / 0.16);
   border-color: hsl(243 76% 63% / 0.5); box-shadow: 0 0 0 1px hsl(243 76% 63% / 0.18);
 }
-.chip-pass.is-active  { color: hsl(163 70% 82%); background: hsl(163 72% 50% / 0.13); border-color: hsl(163 72% 50% / 0.42); box-shadow: none; }
-.chip-fail.is-active  { color: hsl(352 90% 84%); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.42); box-shadow: none; }
-.chip-edge.is-active  { color: hsl(38 92% 80%);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.42);  box-shadow: none; }
+.chip-pass.is-active  { color: var(--on-mint); background: hsl(163 72% 50% / 0.13); border-color: hsl(163 72% 50% / 0.42); box-shadow: none; }
+.chip-fail.is-active  { color: var(--on-rose); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.42); box-shadow: none; }
+.chip-edge.is-active  { color: var(--on-amber);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.42);  box-shadow: none; }
 
 .select, .input {
   padding: 8px 11px; border-radius: 9px; font: inherit; font-size: 12px;
@@ -314,26 +420,26 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 .table-wrap {
   flex: 1; min-height: 220px; overflow: auto;
   border: 1px solid var(--border); border-radius: 12px;
-  background: hsl(226 28% 8% / 0.5);
+  background: var(--sunken);
 }
 .tc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .tc-table thead th {
   position: sticky; top: 0; z-index: 2; text-align: left; white-space: nowrap;
   padding: 11px 14px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--fg-subtle);
-  background: hsl(226 26% 12%); border-bottom: 1px solid var(--border);
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
 }
 .tc-table td {
   padding: 12px 14px; vertical-align: top; line-height: 1.65;
-  border-bottom: 1px solid hsl(226 20% 16%);
+  border-bottom: 1px solid var(--divider);
 }
 .tc-table tbody tr { transition: background var(--dur) ease; }
-.tc-table tbody tr:hover { background: hsl(243 40% 18% / 0.22); }
+.tc-table tbody tr:hover { background: hsl(243 76% 63% / 0.10); }
 .tc-table tbody tr:last-child td { border-bottom: 0; }
 .col-id { width: 104px; } .col-type { width: 84px; }
 .col-priority { width: 78px; } .col-area { width: 136px; }
 .cell-id {
-  white-space: nowrap; color: hsl(243 90% 84%);
+  white-space: nowrap; color: var(--on-indigo);
   font: 11.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 .cell-steps ol { margin: 0; padding-left: 17px; }
@@ -344,20 +450,20 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 /* 중요도 좌측 인디케이터 */
 tr.prio-High td:first-child { box-shadow: inset 3px 0 0 var(--rose); }
 tr.prio-Med  td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
-tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
+tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 
 /* ------------------------------------------------------------------ pills */
 .pill {
   display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill);
   font-size: 11px; font-weight: 550; white-space: nowrap; border: 1px solid transparent;
 }
-.pill-pass { color: hsl(163 70% 78%); background: hsl(163 72% 50% / 0.13); border-color: hsl(163 72% 50% / 0.30); }
-.pill-fail { color: hsl(352 90% 82%); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.30); }
-.pill-edge { color: hsl(38 92% 78%);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.30); }
-.pill-high { color: hsl(352 90% 82%); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.30); }
-.pill-med  { color: hsl(38 92% 78%);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.30); }
-.pill-low  { color: var(--fg-muted);  background: hsl(226 20% 22% / 0.8);  border-color: var(--border); }
-.pill-ai   { color: hsl(263 90% 86%); background: hsl(263 74% 65% / 0.15); border-color: hsl(263 74% 65% / 0.34); margin-left: 5px; }
+.pill-pass { color: var(--on-mint); background: hsl(163 72% 50% / 0.13); border-color: hsl(163 72% 50% / 0.30); }
+.pill-fail { color: var(--on-rose); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.30); }
+.pill-edge { color: var(--on-amber);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.30); }
+.pill-high { color: var(--on-rose); background: hsl(352 80% 63% / 0.13); border-color: hsl(352 80% 63% / 0.30); }
+.pill-med  { color: var(--on-amber);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.30); }
+.pill-low  { color: var(--fg-muted);  background: var(--muted);  border-color: var(--border); }
+.pill-ai   { color: var(--on-violet); background: hsl(263 74% 65% / 0.15); border-color: hsl(263 74% 65% / 0.34); margin-left: 5px; }
 
 /* -------------------------------------------------------------------- diff */
 .diff-result { margin-top: 14px; overflow: auto; font-size: 12px; }
@@ -371,12 +477,12 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
   background: var(--muted); border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
   transition: transform var(--dur) var(--ease), background var(--dur) ease;
 }
-.diff-item:hover { transform: translateX(2px); background: var(--card-hover); }
+.diff-item:hover { transform: translateX(2px); background: var(--surface-3); }
 .diff-added    { border-left-color: var(--mint); }
 .diff-removed  { border-left-color: var(--rose); }
 .diff-modified { border-left-color: var(--amber); }
 .diff-item .meta { margin-top: 5px; font-size: 11px; color: var(--fg-subtle); }
-.diff-item del { color: hsl(352 80% 76%); text-decoration-color: hsl(352 80% 63% / 0.6); }
+.diff-item del { color: var(--on-rose); text-decoration-color: hsl(352 80% 63% / 0.6); }
 
 /* --------------------------------------------------------------- a11y/motion */
 @media (prefers-reduced-motion: reduce) {
@@ -390,15 +496,15 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 
 .view-switch {
   display: flex; gap: 4px; margin-bottom: 16px; padding: 4px; width: fit-content;
-  background: hsl(226 26% 8%); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--sunken); border: 1px solid var(--border); border-radius: 12px;
 }
 .view-switch .tab { flex: 0 0 auto; padding: 7px 18px; }
 
 /* -------------------------------------------------------- TC 테이블 확장 */
 .col-toggle { width: 34px; }
 .tc-row { cursor: pointer; }
-.tc-row:focus-visible { outline: none; background: hsl(243 50% 22% / 0.35); }
-.tc-row.is-open { background: hsl(243 45% 20% / 0.30); }
+.tc-row:focus-visible { outline: none; background: hsl(243 76% 63% / 0.16); }
+.tc-row.is-open { background: hsl(243 76% 63% / 0.13); }
 .cell-area { color: var(--fg-muted); }
 .cell-title { font-weight: 500; }
 .cell-objective {
@@ -408,10 +514,10 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 .chevron { display: inline-block; transition: transform var(--dur) var(--ease); }
 .tc-row.is-open .chevron { color: var(--primary-hi); }
 
-.detail-row > td { padding: 0 14px 16px; background: hsl(226 28% 8.5%); }
+.detail-row > td { padding: 0 14px 16px; background: var(--sunken); }
 .detail {
   padding: 16px; border-radius: 12px;
-  background: hsl(226 26% 11%); border: 1px solid var(--border);
+  background: var(--surface-2); border: 1px solid var(--border);
   animation: rise var(--dur) var(--ease);
 }
 .detail-grid {
@@ -436,15 +542,15 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 .mono {
   padding: 1px 6px; margin-right: 6px; border-radius: 6px;
   font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: hsl(243 90% 84%); background: hsl(243 76% 63% / 0.12);
+  color: var(--on-indigo); background: hsl(243 76% 63% / 0.12);
 }
 .tag {
   display: inline-block; padding: 2px 9px; border-radius: var(--radius-pill);
   font-size: 10.5px; color: var(--fg-muted);
-  background: hsl(226 22% 18%); border: 1px solid var(--border);
+  background: var(--elevated); border: 1px solid var(--border);
 }
-.tag-num { color: hsl(163 70% 80%); background: hsl(163 72% 50% / 0.12); border-color: hsl(163 72% 50% / 0.28); }
-.tag-warn { color: hsl(38 92% 80%); background: hsl(38 92% 60% / 0.13); border-color: hsl(38 92% 60% / 0.32); }
+.tag-num { color: var(--on-mint); background: hsl(163 72% 50% / 0.12); border-color: hsl(163 72% 50% / 0.28); }
+.tag-warn { color: var(--on-amber); background: hsl(38 92% 60% / 0.13); border-color: hsl(38 92% 60% / 0.32); }
 
 /* ------------------------------------------------------------- 요약 뷰 */
 .summary-view { flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
@@ -456,7 +562,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 
 .sum-card {
   padding: 18px; margin-bottom: 14px; border-radius: 12px;
-  background: hsl(226 26% 11%); border: 1px solid var(--border);
+  background: var(--surface-2); border: 1px solid var(--border);
 }
 .sum-card h3 {
   margin: 0 0 12px; font-size: 13px; font-weight: 650; letter-spacing: -0.1px;
@@ -470,7 +576,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
   font-size: 10.5px; font-weight: 400; color: var(--fg-subtle);
   padding: 2px 8px; border-radius: var(--radius-pill); background: var(--muted);
 }
-.sum-ai { border-color: hsl(263 74% 65% / 0.34); background: hsl(263 40% 14% / 0.5); }
+.sum-ai { border-color: hsl(263 74% 65% / 0.34); background: hsl(263 74% 65% / 0.08); }
 
 .sum-headline { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--fg); }
 .sum-stats { display: flex; gap: 7px; flex-wrap: wrap; font-size: 12px; }
@@ -492,36 +598,36 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 .sum-table th {
   text-align: left; padding: 9px 11px; white-space: nowrap;
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--fg-subtle); background: hsl(226 26% 13%); border-bottom: 1px solid var(--border);
+  color: var(--fg-subtle); background: var(--surface-2); border-bottom: 1px solid var(--border);
 }
-.sum-table td { padding: 9px 11px; border-bottom: 1px solid hsl(226 20% 16%); vertical-align: top; }
+.sum-table td { padding: 9px 11px; border-bottom: 1px solid var(--divider); vertical-align: top; }
 .sum-table tbody tr:last-child td { border-bottom: 0; }
-.sum-table tbody tr:hover { background: hsl(243 40% 18% / 0.2); }
+.sum-table tbody tr:hover { background: hsl(243 76% 63% / 0.09); }
 .sum-src { color: var(--fg-subtle); }
 
 .sum-risks { margin: 0; padding: 0; list-style: none; }
 .sum-risks li {
   padding: 12px; margin-bottom: 8px; border-radius: 10px;
-  background: hsl(38 60% 14% / 0.35); border: 1px solid hsl(38 92% 60% / 0.22);
+  background: hsl(38 92% 60% / 0.10); border: 1px solid hsl(38 92% 60% / 0.22);
 }
 .sum-risk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sum-risk-head b { font-size: 12.5px; font-weight: 550; }
 .sum-count {
   padding: 2px 8px; border-radius: var(--radius-pill); font-size: 10.5px;
-  color: var(--fg-muted); background: hsl(226 22% 18%); border: 1px solid var(--border);
+  color: var(--fg-muted); background: var(--elevated); border: 1px solid var(--border);
 }
-.sum-q { margin: 7px 0 0; color: hsl(38 92% 84%); }
+.sum-q { margin: 7px 0 0; color: var(--on-amber); }
 
-.sum-area { padding: 12px 0; border-bottom: 1px solid hsl(226 20% 16%); }
+.sum-area { padding: 12px 0; border-bottom: 1px solid var(--divider); }
 .sum-area:last-child { border-bottom: 0; padding-bottom: 0; }
 .sum-area-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .sum-flow {
   padding: 11px 12px; margin-bottom: 8px; border-radius: 10px;
-  background: hsl(263 40% 18% / 0.4); border-left: 3px solid var(--violet);
+  background: hsl(263 74% 65% / 0.10); border-left: 3px solid var(--violet);
 }
 .sum-flow p { margin: 5px 0 0; color: var(--fg-muted); }
-.sum-watch { color: hsl(38 92% 82%) !important; }
+.sum-watch { color: var(--on-amber) !important; }
 
 /* ===========================================================================
    QA 검증 분석서 (6개 고정 섹션) · 요약 탭 드롭존
@@ -543,10 +649,10 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 .qa-plan-head h2::before {
   content: 'QA'; padding: 2px 8px; border-radius: var(--radius-pill);
   font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-  color: hsl(163 70% 82%); background: hsl(163 72% 50% / 0.14);
+  color: var(--on-mint); background: hsl(163 72% 50% / 0.14);
   border: 1px solid hsl(163 72% 50% / 0.32);
 }
-.qa-card { border-color: hsl(226 20% 24%); }
+.qa-card { border-color: var(--border-strong); }
 .qa-card h3 { color: var(--fg); }
 
 /* §1 관점별 그룹 */
@@ -566,7 +672,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 .qa-todos li {
   display: flex; gap: 9px; align-items: flex-start;
   padding: 9px 11px; margin-bottom: 6px; border-radius: 10px;
-  background: hsl(226 24% 13%); border: 1px solid var(--border);
+  background: var(--surface-3); border: 1px solid var(--border);
 }
 .qa-todos .sum-note { display: block; margin-top: 2px; }
 .qa-check { color: var(--primary-hi); font-size: 13px; line-height: 1.5; }
@@ -574,7 +680,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 /* §3 흐름도 */
 .qa-mermaid {
   margin: 0; padding: 14px; overflow-x: auto; border-radius: 10px;
-  color: hsl(213 25% 88%); background: hsl(226 28% 7%);
+  color: var(--fg); background: var(--sunken);
   border: 1px solid var(--border);
   font: 11.5px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -583,33 +689,36 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 /* §4 Figma */
 .qa-none {
   margin: 0; padding: 12px; border-radius: 10px; text-align: center;
-  color: var(--fg-muted); background: hsl(226 24% 13%);
+  color: var(--fg-muted); background: var(--surface-3);
   border: 1px dashed var(--border-strong);
 }
-.qa-card a { color: var(--primary-hi); }
+.qa-card a { color: var(--on-indigo); }
 
 /* §5 / §6 범위 */
 .qa-scope { margin: 0; padding: 0; list-style: none; }
 .qa-scope li {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
   padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; line-height: 1.7;
-  background: hsl(352 40% 14% / 0.35); border-left: 3px solid hsl(352 80% 63% / 0.55);
+  background: hsl(352 80% 63% / 0.09); border-left: 3px solid hsl(352 80% 63% / 0.55);
 }
 .qa-scope-goal li {
-  background: hsl(163 40% 13% / 0.4); border-left-color: hsl(163 72% 50% / 0.6);
+  background: hsl(163 72% 50% / 0.10); border-left-color: hsl(163 72% 50% / 0.6);
 }
 .qa-scope .tag { flex: none; }
 .qa-guarantee {
   margin: 12px 0 0; padding: 12px; border-radius: 10px; line-height: 1.7;
-  color: hsl(163 70% 84%); background: hsl(163 72% 50% / 0.1);
+  color: var(--on-mint); background: hsl(163 72% 50% / 0.1);
   border: 1px solid hsl(163 72% 50% / 0.28);
 }
 
 .qa-method {
   display: inline-block; margin-right: 6px; padding: 1px 6px;
   border-radius: 5px; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
-  color: hsl(243 90% 84%); background: hsl(243 76% 63% / 0.16);
+  color: var(--on-indigo); background: hsl(243 76% 63% / 0.16);
   border: 1px solid hsl(243 76% 63% / 0.3);
 }
 
 .export-note { margin: -4px 0 14px; }
+
+/* 테마 전환 버튼 — 상단바에서 너비가 흔들리지 않게 최소폭을 준다 */
+#btnTheme { min-width: 74px; text-align: center; }

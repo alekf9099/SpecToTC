@@ -63,7 +63,7 @@ SpecToTC/
 │   ├── diff.js               기획서 변경분 추출 + 회귀 TC 생성
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js /
-│                             summary-view.js / qa-plan-view.js / report.js / robots.txt)
+│                             summary-view.js / qa-plan-view.js / report.js / theme.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
 ├── test/run.js               의존성 없는 테스트 러너 (71 케이스)
 └── vercel.json               Vercel 배포 설정
@@ -210,6 +210,21 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 | **영역별 요점** | 영역마다 요구사항 수·주요 카테고리·대표 문장 3건 |
 
 
+
+### 테마 (라이트 / 다크 / 자동)
+
+상단바의 테마 버튼으로 **자동(OS 설정) → 라이트 → 다크** 를 순환합니다. 선택은 브라우저에 저장되고,
+화면이 그려지기 전에 적용되어 깜빡임이 없습니다. 자동일 때는 OS 설정을 따릅니다.
+
+- 색은 전부 CSS 변수 사다리로 관리합니다 — `--bg` `--surface` `--surface-2/3` `--sunken` `--muted`
+  `--elevated` `--border` `--divider`, 텍스트 `--fg` `--fg-muted` `--fg-subtle` `--fg-faint`.
+  라이트가 기본 정의이고, 다크는 `@media (prefers-color-scheme: dark)` 와 `[data-theme="dark"]` 에서 덮어씁니다.
+- 강조색 배경은 알파(`hsl(... / 0.13)`)로 얹어 두 테마에서 같은 규칙이 동작합니다.
+  강조색 위의 글자는 `--on-mint` `--on-rose` `--on-amber` `--on-indigo` `--on-violet` 로 분리해
+  테마별로 읽히는 톤을 씁니다 (면 색을 글자색으로 쓰면 라이트에서 대비가 2.6:1 까지 떨어집니다).
+- **대비 기준**: 본문·보조 텍스트·배지·표 머리행을 실측해 두 테마 모두 WCAG AA(4.5:1) 이상을 유지합니다
+  (라이트 최저 4.72, 다크 최저 5.1).
+- 다크는 이전보다 한 단계 밝혔습니다 — 배경 `hsl(226 33% 7.5%)` → `hsl(226 26% 12%)`.
 ### 전체 문서 내보내기 (PDF · HTML)
 
 요약 탭의 **전체 문서 PDF 내보내기** 버튼(테스트케이스 탭의 `전체 문서 PDF` 도 동일)은

@@ -309,7 +309,7 @@ CSV 컬럼 15개: `TC_ID, 유형, 중요도, 요구사항 영역, 테스트 시�
 | 서버 | Express 5 — 로컬은 `server.js`, Vercel은 `api/index.js`가 **동일 앱을 재사용** |
 | 의존성 | `express`, `pdfjs-dist` / 선택: `@anthropic-ai/sdk` (`optionalDependencies`, 미설치여도 서버 정상 동작) |
 | 프론트엔드 | 빌드 없는 정적 HTML + CSS + Vanilla JS (프레임워크 없음) |
-| 테마 | shadcn 계열 다크 — 네이비·차콜 배경, 인디고→바이올렛 포인트, 민트 보조. 모든 색을 HSL 토큰으로 관리 |
+| 테마 | 라이트 / 다크 / 자동(OS) 전환. 색은 CSS 변수 사다리로 관리하고 두 테마 모두 WCAG AA(4.5:1) 이상 유지 (라이트 최저 4.72, 다크 최저 5.1) |
 | 인증 | 기본 비활성. 필요 시 팀 공용 비밀번호 + HMAC 서명 HttpOnly 세션 쿠키로 전환 (환경 변수 1개) |
 | 테스트 | 의존성 없는 자체 러너 **71케이스**. `.docx` `.pdf` 픽스처를 코드로 생성해 종단 검증, 인증·레이트리밋·로그 위생·검증 분석서 포함 |
 | 규모 | 소스 22파일 / 약 3,500줄 |
@@ -353,7 +353,9 @@ CSV 컬럼 15개: `TC_ID, 유형, 중요도, 요구사항 영역, 테스트 시�
 
 | 날짜 | 내용 | 링크 |
 | --- | --- | --- |
-| 2026-08-24 | Vercel PDF 워커 로딩 실패 수정 (워커 메인 스레드 공급) | PR #7 |
+| 2026-08-24 | 라이트/다크 테마 전환 + 다크 톤 완화 | PR #9 |
+| 2026-08-24 | 전체 문서 내보내기 (PDF 인쇄 · HTML 파일) | [PR #8](https://github.com/alekf9099/SpecToTC/pull/8) |
+| 2026-08-24 | Vercel PDF 워커 로딩 실패 수정 (워커 메인 스레드 공급) | [PR #7](https://github.com/alekf9099/SpecToTC/pull/7) |
 | 2026-08-24 | PDF 업로드 `DOMMatrix is not defined` 수정 (Node DOM 폴리필 내장) | [PR #6](https://github.com/alekf9099/SpecToTC/pull/6) |
 | 2026-08-21 | URL 추출 표기 확대 · 단계 순서 흐름도 · 화면별 시나리오 | [PR #5](https://github.com/alekf9099/SpecToTC/pull/5) |
 | 2026-08-21 | QA 검증 분석서(6개 고정 섹션) + 요약 탭 파일 업로드 | [PR #4](https://github.com/alekf9099/SpecToTC/pull/4) |
