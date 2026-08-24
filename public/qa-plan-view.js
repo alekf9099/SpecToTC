@@ -60,7 +60,7 @@ function renderQaPlan(qa, ai) {
         <tbody>${qa.urls.map((u, i) => `<tr>
           <td>${i + 1}</td>
           <td>${esc(u.screen)}</td>
-          <td class="mono">${esc(u.path)}</td>
+          <td class="mono">${u.method ? `<span class="qa-method">${esc(u.method)}</span>` : ''}${esc(u.path)}</td>
           <td>${esc(u.access)}</td>
           <td class="sum-src">${esc(u.scenario)}</td>
         </tr>`).join('')}</tbody>
@@ -151,7 +151,8 @@ function qaPlanToMarkdown() {
   out.push(`## ${QA_SECTIONS[1]}`, '');
   if ((qa.urls || []).length) {
     out.push('| # | 화면/기능 | URL 경로 | 접근 권한 | 핵심 검증 시나리오 |', '| --- | --- | --- | --- | --- |');
-    qa.urls.forEach((u, i) => out.push(`| ${i + 1} | ${u.screen} | ${u.path} | ${u.access} | ${u.scenario} |`));
+    qa.urls.forEach((u, i) => out.push(
+      `| ${i + 1} | ${u.screen} | ${u.method ? `\`${u.method}\` ` : ''}${u.path} | ${u.access} | ${u.scenario} |`));
   } else {
     out.push('문서에서 URL·경로를 찾지 못했습니다 — 검증 대상 주소를 기획에 확인해야 합니다.');
   }

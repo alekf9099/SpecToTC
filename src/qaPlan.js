@@ -35,6 +35,53 @@ const FIGMA_RE = /https?:\/\/(?:www\.)?figma\.com\/[^\s)>\]"'`]+/gi;
 const ABS_URL_RE = /https?:\/\/[^\s)>\]"'`]+/gi;
 // "/board/list", "/api/posts/{id}" 형태의 경로. 날짜(/2026)·소수점만 있는 토큰은 제외한다.
 const PATH_RE = /(?:^|[\s(["'`|>])(\/(?:[a-zA-Z][\w\-.{}:]*)(?:\/[\w\-.{}:$]*)*)/g;
+// 마크다운 링크 — 라벨을 화면 이름으로 쓸 수 있어 따로 뽑는다.
+const MD_LINK_RE = /\[([^\]]{1,60})\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g;
+// "URL: ...", "경로: board/list" 처럼 라벨이 붙은 표기 (슬래시 없이 적는 경우까지)
+const LABELED_RE = /(?:URL|url|주소|경로|링크|링크\s*주소|엔드포인트|endpoint|path|page)\s*[:：=]\s*([^\s,|)]{2,120})/g;
+// "GET /api/posts", "POST /board/write"
+const METHOD_RE = /\b(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s,|)]*)/g;
+// 스킴 없이 적힌 도메인 — 사내 문서에서 흔하다. ("center.muhayu.com/post/view/xxx")
+const BARE_HOST_RE = /(?:^|[\s(["'`|>])((?:[a-z0-9][a-z0-9-]*\.)+(?:com|net|org|io|co|kr|dev|app|me|ai|cloud)(?:\/[\w\-./{}:$?=&%]*)?)/gi;
+
+/** URL 로 보이지만 검증 대상 화면이 아닌 것 (소스 파일·이미지·문서 등) */
+const NOT_A_SCREEN = /\.(?:png|jpe?g|gif|svg|webp|ico|css|js|mjs|ts|tsx|jsx|json|ya?ml|md|txt|pdf|docx?|xlsx?|zip|woff2?)$/i;
+
+/** 경로/URL 후보를 정리한다. 대상이 아니면 null. */
+function normalizeTarget(raw) {
+  if (!raw) return null;
+  let t = String(raw).trim().replace(/[.,;:]+$/, '').replace(/^[<("'`]+|[>)"'`]+$/g, '');
+  if (!t || t.length < 2) return null;
+  if (/figma\.com/i.test(t)) return null;
+  if (NOT_A_SCREEN.test(t)) return null;
+  // "board/list" 처럼 슬래시로 시작하지 않는 상대 경로는 앞에 / 를 붙여 통일한다.
+  if (!/^https?:\/\//i.test(t) && !t.startsWith('/')) {
+    if (/^(?:[a-z0-9][a-z0-9-]*\.)+[a-z]{2,}/i.test(t)) return t;      // 도메인
+    if (!/^[a-zA-Z][\w\-]*(?:\/[\w\-.{}:$]*)+$/.test(t)) return null;  // 경로 형태가 아니면 버린다
+    t = `/${t}`;
+  }
+  if (t === '/' || /^\/\d+(?:\.\d+)*$/.test(t)) return null; // 루트·버전/날짜 토큰 제외
+  return t;
+}
+
+/** 표 행에서 권한 셀("전체" / "회원" / "관리자")을 직접 읽는다 */
+const ACCESS_CELL = {
+  전체: '전체', 모두: '전체', 누구나: '전체', 공개: '전체', all: '전체', public: '전체',
+  회원: '회원', 로그인: '회원', 사용자: '회원', member: '회원', user: '회원',
+  관리자: '관리자', 운영자: '관리자', admin: '관리자',
+  비로그인: '비로그인', 게스트: '비로그인', guest: '비로그인',
+};
+
+function accessFromTableRow(line, needle) {
+  if (!/^\s*\|/.test(String(line || ''))) return null;
+  const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
+  for (const cell of cells) {
+    if (cell.includes(needle)) continue;
+    const hit = ACCESS_CELL[cell] || ACCESS_CELL[cell.toLowerCase()];
+    if (hit) return hit;
+  }
+  return null;
+}
 
 /** 경로/URL 이 어떤 권한을 요구하는지 문맥에서 추정 */
 function guessAccess(context) {
@@ -63,40 +110,117 @@ function scenarioFor(categories) {
   return hits.length ? [...new Set(hits)].slice(0, 3).join(' / ') : '정상 흐름 + 실패 처리';
 }
 
+/**
+ * 화면 이름·경로에서 검증 관점을 추정한다.
+ * 영역 카테고리만 쓰면 "글 작성" 행에 "페이징·정렬" 이 붙는 것처럼 화면과 어긋난다.
+ */
+const SCREEN_HINTS = [
+  [/목록|리스트|list|index/i, ['LIST']],
+  [/검색|search/i, ['LIST']],
+  [/작성|등록|쓰기|생성|write|create|new|form/i, ['VALIDATION', 'FILE']],
+  [/수정|편집|변경|edit|update|modify/i, ['VALIDATION', 'DESTRUCTIVE']],
+  [/삭제|제거|delete|remove/i, ['DESTRUCTIVE']],
+  [/관리|어드민|백오피스|admin|manage/i, ['AUTH', 'DESTRUCTIVE']],
+  [/상세|보기|detail|view|read/i, ['NAVIGATION']],
+  [/로그인|인증|가입|계정|login|sign|auth/i, ['AUTH']],
+  [/결제|주문|정산|환불|payment|order|checkout/i, ['PAYMENT']],
+  [/업로드|첨부|파일|upload|attach|file/i, ['FILE']],
+  [/알림|푸시|메일|notification|push|mail/i, ['NOTIFICATION']],
+];
+
+function scenarioForScreen(screen, path, fallbackCategories) {
+  const hay = `${screen || ''} ${path || ''}`;
+  const keys = [];
+  for (const [re, cats] of SCREEN_HINTS) {
+    if (re.test(hay)) keys.push(...cats);
+  }
+
+  // API 경로는 화면이 아니라 직접 호출 대상이므로 관점이 다르다.
+  const target = String(path || '').toLowerCase();
+  if (target.startsWith('/api/') || target.startsWith('api/') || target.includes('/api/')) {
+    return '권한 경계(토큰 직접 호출) / 필수 파라미터 검증 / 오류 응답 코드';
+  }
+
+  if (!keys.length) return scenarioFor(fallbackCategories || []);
+  return [...new Set(keys)].map((k) => SCENARIO_BY_CATEGORY[k]).filter(Boolean).slice(0, 3).join(' / ');
+}
+
 function collectUrls(rawText, requirements) {
   const text = String(rawText || '');
-  const rows = [];
-  const seen = new Set();
-
-  /** 해당 문자열이 등장한 줄과, 그 줄이 속한 영역을 찾는다 */
   const lines = text.split('\n');
+  const rows = [];
+  const seen = new Map();
+
+  /** 해당 문자열이 등장한 줄과, 그 줄이 속한 영역·표 첫 셀을 찾는다 */
   const locate = (needle) => {
     const idx = lines.findIndex((l) => l.includes(needle));
-    if (idx < 0) return { context: '', area: null };
+    if (idx < 0) return { context: '', area: null, cell: null };
+    const line = lines[idx];
     const req = requirements.find((r) => r.line === idx + 1)
       || requirements.filter((r) => r.line <= idx + 1).slice(-1)[0];
-    return { context: lines[idx], area: req ? req.area : null };
+
+    // 마크다운 표 행이면 첫 셀을 화면 이름으로 쓴다 ("| 게시글 목록 | /board/list |")
+    let cell = null;
+    if (/^\s*\|/.test(line)) {
+      const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
+      if (cells.length >= 2 && !cells[0].includes(needle) && cells[0].length <= 40) cell = cells[0];
+    }
+    return { context: line, area: req ? req.area : null, cell };
   };
 
-  const push = (url) => {
-    const key = url.replace(/[.,;)]+$/, '');
-    if (seen.has(key) || FIGMA_RE.test(key)) return;
-    FIGMA_RE.lastIndex = 0;
-    seen.add(key);
-    const { context, area } = locate(key);
+  /**
+   * @param {string} raw   경로/URL 후보
+   * @param {{label?: string, method?: string}} meta 화면 이름 힌트와 HTTP 메서드
+   */
+  const push = (raw, meta = {}) => {
+    const path = normalizeTarget(raw);
+    if (!path) return;
+
+    const needle = String(raw).trim();
+    const { context, area, cell } = locate(needle);
+    const screen = meta.label || cell || area || NOT_SPECIFIED;
+
+    // 같은 경로는 메서드 유무와 무관하게 한 행으로 합친다.
+    // ("GET /api/posts" 를 먼저 담고 나중에 "/api/posts" 가 또 잡히는 중복 방지)
+    const prev = seen.get(path);
+    if (prev) {
+      if (prev.screen === NOT_SPECIFIED && screen !== NOT_SPECIFIED) {
+        prev.screen = screen;
+        prev.scenario = scenarioForScreen(screen, path, null);
+      }
+      if (meta.method && !prev.methods.includes(meta.method)) prev.methods.push(meta.method);
+      const betterAccess = accessFromTableRow(context, needle);
+      if (betterAccess && prev.access.includes(NOT_SPECIFIED)) prev.access = betterAccess;
+      return;
+    }
+
     const req = requirements.find((r) => r.area === area);
-    rows.push({
-      screen: area || NOT_SPECIFIED,
-      path: key,
-      access: guessAccess(`${context} ${area || ''}`),
-      scenario: scenarioFor(req ? req.categories : []),
-    });
+    const row = {
+      screen,
+      methods: meta.method ? [meta.method] : [],
+      path,
+      access: accessFromTableRow(context, needle) || guessAccess(`${context} ${area || ''} ${path}`),
+      scenario: scenarioForScreen(screen, path, req ? req.categories : []),
+    };
+    seen.set(path, row);
+    rows.push(row);
   };
 
+  // 라벨이 붙은 표기를 먼저 처리해 화면 이름을 확보한다.
+  for (const m of text.matchAll(MD_LINK_RE)) push(m[2], { label: m[1] });
+  for (const m of text.matchAll(METHOD_RE)) push(m[2], { method: m[1] });
+  for (const m of text.matchAll(LABELED_RE)) push(m[1]);
   for (const m of text.matchAll(ABS_URL_RE)) push(m[0]);
+  for (const m of text.matchAll(BARE_HOST_RE)) push(m[1]);
   for (const m of text.matchAll(PATH_RE)) push(m[1]);
 
-  return rows.slice(0, 40);
+  return rows.slice(0, 40).map((r) => ({
+    screen: r.screen,
+    method: r.methods.length ? r.methods.join(' / ') : null,
+    path: r.path,
+    access: r.access,
+    scenario: r.scenario,
+  }));
 }
 
 function collectFigma(rawText) {
@@ -107,16 +231,89 @@ function collectFigma(rawText) {
 /* ------------------------------------------------------- §3 동작 흐름 */
 
 /**
+ * 문서에 명시된 단계 표기를 찾는다 — "1단계", "Step 2", "①", "순서: ...".
+ * 표기가 있을 때만 순서를 그리고, 없으면 순서를 추측하지 않는다.
+ * (번호가 붙은 절 제목은 기능 목록일 뿐 사용자 흐름 순서가 아닌 경우가 많다.)
+ */
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+
+function detectSteps(rawText) {
+  const lines = String(rawText || '').split('\n');
+  const found = [];
+
+  lines.forEach((line, i) => {
+    const body = clean(line.replace(/^\s*[-*+•]\s*/, '').replace(/^#+\s*/, ''));
+    if (!body) return;
+
+    let order = null;
+    let label = null;
+
+    const ko = body.match(/^(\d{1,2})\s*단계\s*[:.)\-]?\s*(.*)$/);
+    if (ko) { order = Number(ko[1]); label = ko[2]; }
+
+    const en = !ko && body.match(/^step\s*(\d{1,2})\s*[:.)\-]?\s*(.*)$/i);
+    if (en) { order = Number(en[1]); label = en[2]; }
+
+    if (!order) {
+      const idx = CIRCLED.indexOf(body[0]);
+      if (idx >= 0) { order = idx + 1; label = body.slice(1).trim(); }
+    }
+
+    if (!order) return;
+    // 첫 문장(또는 첫 절)만 남긴다. 뒤에 붙는 상세 설명까지 노드에 넣으면 도형이 깨진다.
+    const head = String(label || '').split(/(?<=다)\.\s|\.\s|—|·|,\s/)[0];
+    found.push({ order, label: truncate(head || `${order}단계`, 24), line: i + 1 });
+  });
+
+  // 같은 번호가 여러 번 나오면(여러 흐름) 첫 세트만 쓴다.
+  const unique = [];
+  const usedOrders = new Set();
+  for (const step of found.sort((a, b) => a.order - b.order || a.line - b.line)) {
+    if (usedOrders.has(step.order)) continue;
+    usedOrders.add(step.order);
+    unique.push(step);
+  }
+
+  return unique.length >= 2 ? unique : null;
+}
+
+/**
  * 영역과 조건 분기로 mermaid flowchart 를 만든다.
  * (앱에서는 코드 블록으로 보여주고, Notion·GitHub 에 붙이면 그림으로 렌더된다.)
  *
  * 어느 영역이 비로그인으로 접근 가능한지는 문서만으로 단정할 수 없으므로 추측하지 않는다.
  * 인증 영역이 있으면 진입 관문으로만 배치하고, 판단이 필요한 부분은 caption 으로 알린다.
  */
-function buildFlow(requirements, areas) {
-  if (!areas.length) return { mermaid: null, caption: NOT_SPECIFIED };
-
+function buildFlow(requirements, areas, rawText) {
   const safe = (s) => clean(s).replace(/[\[\]{}()"|]/g, '').slice(0, 28) || '단계';
+
+  // 문서에 단계 표기가 있으면 그 순서대로 직렬 흐름을 그린다.
+  // 요구사항이 하나도 추출되지 않은 문서(순서만 적힌 흐름 문서)에서도 살려야 하므로
+  // 영역 유무보다 먼저 판정한다.
+  const steps = detectSteps(rawText);
+  if (steps) {
+    const lines = ['flowchart TD', '    START[사용자 진입]'];
+    let prev = { node: 'START', label: null };
+    steps.forEach((step, i) => {
+      if (i === 0) lines.push(`    START --> S0["${step.order}. ${safe(step.label)}"]`);
+      lines.push(`    S${i} --> C${i}{정상 / 실패}`);
+      lines.push(`    C${i} -- 실패 --> NG${i}[사유 안내 · 상태 원복]`);
+      prev = { node: `C${i}`, label: '정상' };
+      if (i < steps.length - 1) {
+        // 다음 단계로 넘어가는 엣지도 "정상" 경로임을 표시한다.
+        lines.push(`    C${i} -- 정상 --> S${i + 1}["${steps[i + 1].order}. ${safe(steps[i + 1].label)}"]`);
+      }
+    });
+    lines.push(`    ${prev.node} -- 정상 --> DONE[처리 완료 · 결과 반영]`);
+    return {
+      mermaid: lines.join('\n'),
+      caption: `문서에 명시된 단계 표기(${steps.length}단계)를 따라 순서를 구성했습니다.`,
+      ordered: true,
+    };
+  }
+
+  if (!areas.length) return { mermaid: null, caption: NOT_SPECIFIED, ordered: false };
+
   // 관문은 영역 이름 자체가 인증을 뜻할 때만 둔다. 단순히 AUTH 키워드가 섞였다는 이유로
   // 임의의 기능 영역을 로그인 관문으로 세우면 흐름을 잘못 단정하게 된다.
   const authArea = areas.find((a) => /로그인|인증|가입|계정|login|sign\s?in|sign\s?up|auth/i.test(a));
@@ -150,7 +347,7 @@ function buildFlow(requirements, areas) {
     caption = '문서에 인증 관련 요구사항이 없어 로그인 관문 없이 구성했습니다. 권한 모델은 기획 확인이 필요합니다.';
   }
 
-  return { mermaid: lines.join('\n'), caption };
+  return { mermaid: lines.join('\n'), caption: `${caption} 문서에 단계 표기(1단계·Step 등)가 없어 영역을 병렬로 배치했습니다 — 실제 화면 전이 순서는 기획 확인이 필요합니다.`, ordered: false };
 }
 
 /* --------------------------------------------- §1 검증 참고사항 / 체크리스트 */
@@ -404,7 +601,7 @@ function buildQaPlan(requirements, rawText, context = {}) {
     checkpoints: buildCheckpoints(requirements, rawText),
     todos: buildTodos(requirements, rawText),
     urls: collectUrls(rawText, requirements),
-    flow: buildFlow(requirements, areas),
+    flow: buildFlow(requirements, areas, rawText),
     figma: figma.length ? figma : null,
     nonGoals: collectNonGoals(requirements, rawText),
     goals: goals.items,
@@ -415,6 +612,9 @@ function buildQaPlan(requirements, rawText, context = {}) {
 module.exports = {
   buildQaPlan,
   isFeatureArea,
+  scenarioForScreen,
+  detectSteps,
+  normalizeTarget,
   buildCheckpoints,
   buildTodos,
   collectUrls,
