@@ -302,6 +302,95 @@ test('문서에 없는 항목은 "확인 필요" 로 표기한다', () => {
     || qa.checkpoints[0].items[0].what.length > 0);
 });
 
+test('URL 표기를 여러 형태로 추출하고 중복을 합친다', () => {
+  const doc = [
+    '## 1. 화면 목록',
+    '| 화면 | 경로 | 권한 |',
+    '| --- | --- | --- |',
+    '| 게시글 목록 | /board/list | 전체 |',
+    '| 글 작성 | /board/write | 회원 |',
+    '| 게시판 관리 | /admin/board | 관리자 |',
+    '- 상세는 [게시글 상세](https://staging.example.com/board/view/{id}) 에서 확인한다.',
+    '- 운영 주소: center.muhayu.com/post/view/abc',
+    '- 목록 API 는 GET /api/posts 를 호출하고, 저장은 POST /api/posts 로 전송한다.',
+    '- 시안: https://www.figma.com/file/abc/board',
+    '- 아이콘은 /assets/icon.png 를 쓴다.',
+  ].join('\n');
+
+  const urls = summarizeSpec(doc).qaPlan.urls;
+  const byPath = Object.fromEntries(urls.map((u) => [u.path, u]));
+
+  // 표 셀의 권한 값을 그대로 읽는다
+  assert.equal(byPath['/board/list'].access, '전체');
+  assert.equal(byPath['/board/write'].access, '회원');
+  assert.equal(byPath['/admin/board'].access, '관리자');
+  // 표 첫 셀을 화면 이름으로 쓴다
+  assert.equal(byPath['/board/write'].screen, '글 작성');
+  // 마크다운 링크 라벨을 화면 이름으로 쓴다
+  assert.equal(byPath['https://staging.example.com/board/view/{id}'].screen, '게시글 상세');
+  // 스킴 없는 사내 도메인도 잡는다
+  assert.ok(byPath['center.muhayu.com/post/view/abc'], Object.keys(byPath).join(' / '));
+  // 같은 경로의 GET/POST 는 한 행으로 합친다
+  assert.ok(byPath['/api/posts'], 'API 경로 없음');
+  assert.equal(byPath['/api/posts'].method, 'GET / POST');
+  assert.equal(urls.filter((u) => u.path === '/api/posts').length, 1, '메서드 유무로 행이 중복됐다');
+  // 정적 자산·Figma 는 검증 대상이 아니다
+  assert.ok(!byPath['/assets/icon.png'], '이미지 경로가 URL 표에 섞였다');
+  assert.ok(!urls.some((u) => /figma/.test(u.path)), 'Figma 링크가 URL 표에 섞였다');
+});
+
+test('검증 시나리오는 화면 이름·경로에 맞춰 추정한다', () => {
+  const qa = summarizeSpec([
+    '## 1. 화면 목록',
+    '| 화면 | 경로 | 권한 |',
+    '| --- | --- | --- |',
+    '| 게시글 목록 | /board/list | 전체 |',
+    '| 글 작성 | /board/write | 회원 |',
+    '| 게시판 관리 | /admin/board | 관리자 |',
+    '- 목록 API 는 GET /api/posts 를 호출한다.',
+    '- 상세는 [게시글 상세](/board/view/1) 이다.',
+  ].join('\n')).qaPlan;
+
+  const by = Object.fromEntries(qa.urls.map((u) => [u.path, u.scenario]));
+  assert.match(by['/board/list'], /페이징/);
+  assert.match(by['/board/write'], /필수값/, '작성 화면에 입력 검증 관점이 없다');
+  assert.ok(!/페이징/.test(by['/board/write']), '작성 화면에 목록 관점이 붙었다');
+  assert.match(by['/admin/board'], /권한 경계/);
+  assert.match(by['/api/posts'], /토큰 직접 호출/, 'API 경로 관점이 화면과 같다');
+  assert.match(by['/board/view/1'], /화면 이동/);
+});
+
+test('문서에 단계 표기가 있으면 순서대로 흐름을 그린다', () => {
+  const stepped = summarizeSpec([
+    '## 작성 흐름',
+    '- 1단계: 글쓰기 버튼을 누른다.',
+    '- 2단계: 제목과 본문을 입력한다. 제목은 최대 60자까지 허용한다.',
+    '- 3단계: 저장하면 목록으로 이동한다.',
+  ].join('\n')).qaPlan;
+
+  assert.equal(stepped.flow.ordered, true, '단계 표기를 인식하지 못했다');
+  const m = stepped.flow.mermaid;
+  assert.match(m, /S0\["1\. 글쓰기 버튼을 누른다"\]/);
+  assert.match(m, /C0 -- 정상 --> S1/, '정상 경로 엣지 라벨 누락');
+  assert.match(m, /C0 -- 실패 --> NG0/);
+  assert.match(m, /DONE\[처리 완료/);
+  // 단계 라벨은 첫 문장만 — 뒤 설명이 노드에 붙으면 도형이 깨진다
+  assert.ok(!/최대 60자/.test(m), `단계 라벨이 너무 길다: ${m}`);
+  assert.match(stepped.flow.caption, /단계 표기\(3단계\)/);
+
+  // Step / 동그라미 숫자 표기도 인식한다
+  const en = summarizeSpec('- Step 1: open the form.\n- Step 2: submit the form.').qaPlan;
+  assert.equal(en.flow.ordered, true);
+  const circled = summarizeSpec('- ① 목록을 연다.\n- ② 상세로 이동한다.').qaPlan;
+  assert.equal(circled.flow.ordered, true);
+});
+
+test('단계 표기가 없으면 순서를 추측하지 않는다', () => {
+  const qa = summarizeSpec('## 1. 로그인\n- 비밀번호는 8자 이상이다.\n## 2. 주문\n- 결제 실패 시 주문을 확정하지 않는다.').qaPlan;
+  assert.equal(qa.flow.ordered, false, '번호 붙은 절 제목을 흐름 순서로 단정했다');
+  assert.match(qa.flow.caption, /단계 표기.*없어|기획 확인/);
+});
+
 test('POST /api/summarize 응답에 qaPlan 이 포함된다', () => withServer(async (base) => {
   const res = await post(base, '/api/summarize', { specText: BOARD_SPEC });
   const data = await res.json();

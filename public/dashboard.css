@@ -604,3 +604,10 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
   color: hsl(163 70% 84%); background: hsl(163 72% 50% / 0.1);
   border: 1px solid hsl(163 72% 50% / 0.28);
 }
+
+.qa-method {
+  display: inline-block; margin-right: 6px; padding: 1px 6px;
+  border-radius: 5px; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  color: hsl(243 90% 84%); background: hsl(243 76% 63% / 0.16);
+  border: 1px solid hsl(243 76% 63% / 0.3);
+}
