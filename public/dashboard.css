@@ -766,3 +766,4 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 .wf-live-note b { color: var(--fg); }
 #optRenderWrap { white-space: nowrap; }
 #browserBadge { font-size: 10.5px; }
+#optRenderWrap.is-disabled { opacity: 0.55; cursor: not-allowed; }
