@@ -64,7 +64,7 @@ SpecToTC/
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js / summary-view.js / qa-plan-view.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (70 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (71 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -133,6 +133,12 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 > 이를 막기 위해 순수 JS 폴리필([`src/extract/domShims.js`](src/extract/domShims.js))을 내장했습니다.
 > 네이티브 canvas 가 있으면 그쪽을 우선 쓰고, 없으면 폴리필로 동작합니다.
 > 현재 어느 쪽을 쓰는지는 `GET /api/health` 의 `pdf.dom` 으로 확인할 수 있습니다.
+
+> **PDF 워커** — pdf.js 는 워커를 런타임에 동적 import 하는데, 그 경로는 정적 분석이 되지 않아
+> 서버리스 번들(Vercel)에 `pdf.worker.mjs` 가 빠지고 `Setting up fake worker failed: Cannot find module …` 로
+> 실패합니다. 그래서 우리 코드에서 워커를 **리터럴 경로로 직접 import 해 `globalThis.pdfjsWorker` 에 공급**합니다.
+> pdf.js 는 이 값이 있으면 파일을 찾지 않으므로 런타임 파일 의존이 사라지고, 번들러도 이 파일을 함께 포함합니다.
+> 현재 구동 방식은 `GET /api/health` 의 `pdf.worker` (`main-thread` 정상) 로 확인합니다.
 
 
 ---

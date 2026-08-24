@@ -161,7 +161,7 @@ function createApp() {
       },
       upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
       // PDF 처리에 쓰는 DOM 구현 — "DOMMatrix is not defined" 류 문제를 바로 진단하기 위한 정보
-      pdf: { dom: domSupport().source, nativeCanvas: domSupport().native },
+      pdf: { dom: domSupport().source, nativeCanvas: domSupport().native, worker: domSupport().worker },
       sessionHours: auth.sessionHours(),
     });
   });
