@@ -15,6 +15,43 @@ const { installDomShims } = require('./domShims');
 
 let pdfjsPromise = null;
 let shimInfo = null;
+let workerMode = 'unknown';
+
+/**
+ * pdf.js 워커를 메인 스레드에 직접 공급한다.
+ *
+ * pdf.js 는 Node 에서 워커가 없으면 "fake worker" 를 세우면서
+ * GlobalWorkerOptions.workerSrc 를 런타임에 동적 import 한다. 이 경로는 정적 분석이
+ * 되지 않아 서버리스 번들(Vercel)에 pdf.worker.mjs 가 포함되지 않고,
+ * "Setting up fake worker failed: Cannot find module ... pdf.worker.mjs" 로 실패한다.
+ *
+ * globalThis.pdfjsWorker 가 있으면 pdf.js 는 파일을 찾지 않고 그것을 그대로 쓴다.
+ * 여기서 리터럴 경로로 import 하므로 번들러도 이 파일을 함께 포함한다.
+ */
+async function ensureWorker(pdfjs) {
+  if (globalThis.pdfjsWorker?.WorkerMessageHandler) {
+    workerMode = 'main-thread';
+    return;
+  }
+
+  try {
+    globalThis.pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    workerMode = globalThis.pdfjsWorker?.WorkerMessageHandler ? 'main-thread' : 'unknown';
+  } catch (err) {
+    // 여기까지 실패하면 pdf.js 의 기존 경로(workerSrc 동적 import)에 맡긴다.
+    workerMode = `fallback: ${String(err.message).split('\n')[0]}`;
+  }
+
+  // 위가 실패했을 때를 대비해 해석 가능한 절대 경로를 알려 둔다.
+  if (pdfjs?.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+    try {
+      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+    } catch (err) {
+      // 경로를 못 찾아도 main-thread 모드면 문제없다.
+    }
+  }
+}
 
 function loadPdfjs() {
   // pdf.js 는 Node 에서 DOMMatrix/ImageData/Path2D 를 optionalDependency 인
@@ -24,14 +61,20 @@ function loadPdfjs() {
   if (!shimInfo) shimInfo = installDomShims();
 
   // ESM 전용 모듈이라 CommonJS 에서는 동적 import 로 지연 로딩한다.
-  if (!pdfjsPromise) pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (!pdfjsPromise) {
+    pdfjsPromise = (async () => {
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      await ensureWorker(pdfjs);
+      return pdfjs;
+    })();
+  }
   return pdfjsPromise;
 }
 
-/** 진단용 — 네이티브 canvas 를 쓰는지, 폴리필로 동작하는지 */
+/** 진단용 — 네이티브 canvas 를 쓰는지, 워커를 어떻게 구동하는지 */
 function domSupport() {
   if (!shimInfo) shimInfo = installDomShims();
-  return shimInfo;
+  return { ...shimInfo, worker: workerMode };
 }
 
 /**
@@ -117,6 +160,10 @@ function describePdfError(err, stage) {
   if (/DOMMatrix|Path2D|ImageData|OffscreenCanvas/i.test(message)) {
     return `PDF 처리에 필요한 그래픽 API 가 이 환경에 없습니다 (${message}). `
       + '서버를 재시작하면 내장 폴리필이 적용됩니다. 계속 발생하면 담당자에게 알려 주세요.';
+  }
+  if (/fake worker|pdf.worker|Cannot find module/i.test(message)) {
+    return `PDF 워커 모듈을 불러오지 못했습니다 (${message}). `
+      + '배포 번들에 pdf.worker 파일이 포함되지 않은 경우입니다. 담당자에게 알려 주세요.';
   }
   if (/password|encrypted/i.test(message)) {
     return 'PDF 가 암호로 보호되어 있습니다. 암호를 해제한 파일로 다시 업로드해 주세요.';

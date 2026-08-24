@@ -525,9 +525,33 @@ test('네이티브 canvas 없이도 PDF 를 처리한다 (DOMMatrix 폴리필)',
   assert.equal(m4.f, 4);
 });
 
+test('PDF 워커를 메인 스레드에 직접 공급한다 (서버리스 번들 대응)', async () => {
+  const { domSupport } = require('../src/extract/pdf');
+
+  // 한 번 처리해 워커가 준비되게 한다
+  await extractText(makePdf(['Worker check.']), 'worker.pdf');
+
+  // pdf.js 는 globalThis.pdfjsWorker 가 있으면 workerSrc 를 동적 import 하지 않는다.
+  // (그 경로가 Vercel 번들에서 "Cannot find module ... pdf.worker.mjs" 로 실패했다)
+  assert.equal(domSupport().worker, 'main-thread', `워커 모드: ${domSupport().worker}`);
+  assert.equal(typeof globalThis.pdfjsWorker?.WorkerMessageHandler, 'function', 'WorkerMessageHandler 미공급');
+
+  // 워커 파일이 사라져도(번들 누락 상황) 이미 로드된 모듈로 계속 동작해야 한다
+  const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+  const hidden = workerPath + '.test-hidden';
+  fs.renameSync(workerPath, hidden);
+  try {
+    const { text } = await extractText(makePdf(['Still works without the file.']), 'worker2.pdf');
+    assert.match(text, /Still works without the file/);
+  } finally {
+    fs.renameSync(hidden, workerPath);
+  }
+});
+
 test('PDF 오류 메시지는 원인별로 구분한다', () => {
   const { describePdfError } = require('../src/extract/pdf');
   assert.match(describePdfError(new Error('DOMMatrix is not defined'), '여는'), /그래픽 API/);
+  assert.match(describePdfError(new Error('Setting up fake worker failed: "Cannot find module pdf.worker.mjs"'), '여는'), /워커 모듈/);
   assert.match(describePdfError(new Error('Password required'), '여는'), /암호/);
   assert.match(describePdfError(new Error('Invalid PDF structure'), '여는'), /손상/);
   assert.match(describePdfError(new Error('something else'), '읽는'), /읽는 중 오류/);
@@ -624,6 +648,7 @@ test('GET /api/health 는 PDF DOM 구현 상태를 알려준다', () => withServ
     assert.ok(['native', 'shim', 'preexisting'].includes(data.pdf.dom[name]), `${name} 상태 불명: ${data.pdf.dom[name]}`);
   }
   assert.equal(typeof data.pdf.nativeCanvas, 'boolean');
+  assert.equal(typeof data.pdf.worker, 'string');
 }));
 
 test('POST /api/generate-tc', () => withServer(async (base) => {
