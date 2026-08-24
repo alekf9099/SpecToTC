@@ -200,6 +200,125 @@ test('요약 커버리지는 TC 미생성 요구사항을 알려준다', () => {
   assert.ok(s.coverage.perRequirement > 1);
 });
 
+/* ------------------------------------------------- QA 검증 분석서 */
+
+const qaPlanMod = require('../src/qaPlan');
+
+const BOARD_SPEC = [
+  '# 사내 공지 게시판',
+  '## 목적',
+  '- 사내 공지 전달 속도를 개선하기 위해 게시판을 구축한다.',
+  '## 1. 게시글 목록',
+  '- 목록은 /board/list 에서 한 페이지에 20건씩 표시하고 무한 스크롤로 추가 로딩한다.',
+  '- 관리자 전용 관리 화면은 /admin/board 이며 관리자만 접근한다.',
+  '- 디자인 시안: https://www.figma.com/file/abc123/board-ui',
+  '## 2. 글 작성',
+  '- 로그인한 회원만 글을 작성할 수 있다.',
+  '- 제목은 최대 60자까지 입력할 수 있다.',
+  '- 첨부파일은 5개까지, 각 10 MB 이하만 허용한다.',
+  '- 저장 실패 시 최대 3회 재시도한다.',
+  '- 저장 후 다음 단계로 이동한다.',
+  '## 3. 범위',
+  '- 결제 연동은 차기 버전에서 지원한다.',
+  '- 댓글 알림은 미지원한다.',
+].join('\n');
+
+test('검증 분석서는 6개 고정 섹션을 모두 채운다', () => {
+  const qa = summarizeSpec(BOARD_SPEC).qaPlan;
+  assert.ok(qa, 'qaPlan 없음');
+
+  // ① 참고사항 — 6개 관점이 순서대로
+  assert.deepEqual(qa.checkpoints.map((g) => g.title), [
+    '권한 / 역할 경계', '입력 검증', '경계조건', '예외 / 에러 처리', '데이터 정합성', '검증 환경',
+  ]);
+  for (const g of qa.checkpoints) {
+    assert.ok(g.items.length > 0, `${g.title} 항목 없음`);
+    for (const i of g.items) {
+      assert.ok(i.what && i.why && i.how, `what/why/how 누락: ${g.title}`);
+    }
+  }
+
+  // ① 준비 체크리스트 (해야 할 일)
+  assert.ok(qa.todos.length >= 5, `준비 항목 부족: ${qa.todos.length}`);
+  assert.ok(qa.todos.every((t) => t.text && t.reason));
+  assert.ok(qa.todos.some((t) => /테스트 계정/.test(t.text)), '권한 계정 준비 항목 없음');
+
+  // ② URL
+  const paths = qa.urls.map((u) => u.path);
+  assert.ok(paths.includes('/board/list'), paths.join(' / '));
+  assert.ok(paths.includes('/admin/board'), paths.join(' / '));
+  assert.equal(qa.urls.find((u) => u.path === '/admin/board').access, '관리자');
+  assert.ok(!paths.some((p) => /figma\.com/.test(p)), 'Figma 링크가 URL 표에 섞였다');
+
+  // ③ 흐름
+  assert.match(qa.flow.mermaid, /^flowchart TD/);
+  assert.ok(qa.flow.caption.length > 10, '흐름 설명 없음');
+
+  // ④ Figma
+  assert.deepEqual(qa.figma, ['https://www.figma.com/file/abc123/board-ui']);
+
+  // ⑤ 비목표
+  const nonGoalText = qa.nonGoals.map((n) => n.text).join(' | ');
+  assert.match(nonGoalText, /차기 버전/);
+  assert.match(nonGoalText, /미지원/);
+  assert.ok(!/다음 단계로 이동/.test(nonGoalText), '일반 흐름 문장을 비목표로 오탐');
+
+  // ⑥ 목표
+  const goalText = qa.goals.map((g) => g.text).join(' | ');
+  assert.match(goalText, /게시판을 구축한다/);
+  assert.ok(!/차기 버전/.test(goalText), '비목표 문장이 목표에 섞였다');
+  assert.match(qa.guarantee, /검증이 통과되면/);
+});
+
+test('메타 섹션(목적·범위)은 기능 영역으로 취급하지 않는다', () => {
+  assert.equal(qaPlanMod.isFeatureArea('목적'), false);
+  assert.equal(qaPlanMod.isFeatureArea('3. 범위'), false);
+  assert.equal(qaPlanMod.isFeatureArea('변경 이력'), false);
+  assert.equal(qaPlanMod.isFeatureArea('미분류'), false);
+  assert.equal(qaPlanMod.isFeatureArea('1. 게시글 목록'), true);
+
+  const qa = summarizeSpec(BOARD_SPEC).qaPlan;
+  assert.ok(!/목적|범위/.test(qa.guarantee), `보장 문장에 메타 섹션이 섞였다: ${qa.guarantee}`);
+  assert.ok(!/\[목적\]|\[3. 범위\]/.test(qa.flow.mermaid), '흐름도에 메타 섹션이 섞였다');
+});
+
+test('흐름도 관문은 이름이 인증을 뜻하는 영역일 때만 세운다', () => {
+  const withLogin = summarizeSpec('## 1. 로그인\n- 비밀번호는 8자 이상이다.\n## 2. 주문\n- 결제 실패 시 주문을 확정하지 않는다.').qaPlan;
+  assert.match(withLogin.flow.mermaid, /AUTH\[1\. 로그인\]/);
+  assert.match(withLogin.flow.caption, /진입 관문/);
+
+  // 인증 키워드가 기능 안에만 섞여 있으면 관문을 세우지 않는다
+  const inline = summarizeSpec('## 1. 글 작성\n- 로그인한 회원만 글을 작성할 수 있다.').qaPlan;
+  assert.ok(!/AUTHR/.test(inline.flow.mermaid), '임의 영역을 로그인 관문으로 세웠다');
+  assert.match(inline.flow.caption, /개별 기능 안에 섞여/);
+});
+
+test('문서에 없는 항목은 "확인 필요" 로 표기한다', () => {
+  const qa = summarizeSpec('- 목록을 표시한다.').qaPlan;
+  assert.equal(qa.figma, null, 'Figma 링크가 없으면 null 이어야 한다');
+  assert.ok(qa.urls.length === 0);
+  assert.match(qa.nonGoals[0].text, /확인 필요|검증 대상에서 제외/);
+  assert.ok(qa.checkpoints[0].items[0].what.includes(qaPlanMod.NOT_SPECIFIED)
+    || qa.checkpoints[0].items[0].what.length > 0);
+});
+
+test('POST /api/summarize 응답에 qaPlan 이 포함된다', () => withServer(async (base) => {
+  const res = await post(base, '/api/summarize', { specText: BOARD_SPEC });
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(data.summary.qaPlan, 'qaPlan 없음');
+  assert.equal(data.summary.qaPlan.checkpoints.length, 6);
+  assert.ok(data.summary.qaPlan.urls.length >= 2);
+  assert.deepEqual(data.summary.qaPlan.figma, ['https://www.figma.com/file/abc123/board-ui']);
+}));
+
+test('POST /api/generate-tc 응답의 specSummary 에도 qaPlan 이 포함된다', () => withServer(async (base) => {
+  const res = await post(base, '/api/generate-tc', { specText: BOARD_SPEC });
+  const data = await res.json();
+  assert.ok(data.specSummary.qaPlan, 'qaPlan 없음');
+  assert.ok(data.specSummary.qaPlan.todos.length > 0);
+}));
+
 /* --------------------------------------------------------------- diff */
 
 test('추가/수정/삭제된 요구사항을 구분한다', () => {

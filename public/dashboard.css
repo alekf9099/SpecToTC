@@ -522,3 +522,85 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
 }
 .sum-flow p { margin: 5px 0 0; color: var(--fg-muted); }
 .sum-watch { color: hsl(38 92% 82%) !important; }
+
+/* ===========================================================================
+   QA 검증 분석서 (6개 고정 섹션) · 요약 탭 드롭존
+   ========================================================================= */
+
+.dropzone-sm { padding: 12px 14px; margin-bottom: 16px; }
+.dropzone-sm .dropzone-icon { width: 26px; height: 26px; font-size: 13px; margin-bottom: 6px; }
+.dropzone-sm .dropzone-title { font-size: 12.5px; }
+
+.qa-plan { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
+.qa-plan-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.qa-plan-head h2 {
+  margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.1px;
+  display: flex; align-items: center; gap: 8px;
+}
+.qa-plan-head h2::before {
+  content: 'QA'; padding: 2px 8px; border-radius: var(--radius-pill);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  color: hsl(163 70% 82%); background: hsl(163 72% 50% / 0.14);
+  border: 1px solid hsl(163 72% 50% / 0.32);
+}
+.qa-card { border-color: hsl(226 20% 24%); }
+.qa-card h3 { color: var(--fg); }
+
+/* §1 관점별 그룹 */
+.qa-group { margin-bottom: 16px; }
+.qa-group:last-child { margin-bottom: 0; }
+.qa-group-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 7px;
+  font-size: 12.5px;
+}
+.qa-table { table-layout: fixed; }
+.qa-table th:nth-child(1), .qa-table td:nth-child(1) { width: 30%; }
+.qa-table th:nth-child(2), .qa-table td:nth-child(2) { width: 28%; }
+.qa-table td { word-break: break-word; }
+
+/* §1 준비 체크리스트 */
+.qa-todos { margin: 8px 0 0; padding: 0; list-style: none; }
+.qa-todos li {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 9px 11px; margin-bottom: 6px; border-radius: 10px;
+  background: hsl(226 24% 13%); border: 1px solid var(--border);
+}
+.qa-todos .sum-note { display: block; margin-top: 2px; }
+.qa-check { color: var(--primary-hi); font-size: 13px; line-height: 1.5; }
+
+/* §3 흐름도 */
+.qa-mermaid {
+  margin: 0; padding: 14px; overflow-x: auto; border-radius: 10px;
+  color: hsl(213 25% 88%); background: hsl(226 28% 7%);
+  border: 1px solid var(--border);
+  font: 11.5px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.qa-flow-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+
+/* §4 Figma */
+.qa-none {
+  margin: 0; padding: 12px; border-radius: 10px; text-align: center;
+  color: var(--fg-muted); background: hsl(226 24% 13%);
+  border: 1px dashed var(--border-strong);
+}
+.qa-card a { color: var(--primary-hi); }
+
+/* §5 / §6 범위 */
+.qa-scope { margin: 0; padding: 0; list-style: none; }
+.qa-scope li {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; line-height: 1.7;
+  background: hsl(352 40% 14% / 0.35); border-left: 3px solid hsl(352 80% 63% / 0.55);
+}
+.qa-scope-goal li {
+  background: hsl(163 40% 13% / 0.4); border-left-color: hsl(163 72% 50% / 0.6);
+}
+.qa-scope .tag { flex: none; }
+.qa-guarantee {
+  margin: 12px 0 0; padding: 12px; border-radius: 10px; line-height: 1.7;
+  color: hsl(163 70% 84%); background: hsl(163 72% 50% / 0.1);
+  border: 1px solid hsl(163 72% 50% / 0.28);
+}
