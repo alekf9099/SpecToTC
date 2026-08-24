@@ -483,6 +483,55 @@ test('PDF 머리글·바닥글 반복 줄을 제거한다', () => {
   ]);
 });
 
+test('네이티브 canvas 없이도 PDF 를 처리한다 (DOMMatrix 폴리필)', async () => {
+  const { domSupport } = require('../src/extract/pdf');
+  const { installDomShims, DOMMatrixShim } = require('../src/extract/domShims');
+
+  // pdf.js 는 DOMMatrix/ImageData/Path2D 를 optionalDependency(@napi-rs/canvas)에서
+  // 가져오므로, 그 네이티브 패키지가 없는 환경에서는 import 자체가 실패한다.
+  // 어느 쪽 환경이든 전역이 채워져 있어야 한다.
+  for (const name of ['DOMMatrix', 'ImageData', 'Path2D']) {
+    assert.equal(typeof globalThis[name], 'function', `${name} 전역이 없다`);
+  }
+  assert.ok(Array.isArray(domSupport().installed), '폴리필 상태를 보고하지 않는다');
+
+  // 실제 추출이 되는지 (폴리필/네이티브 어느 쪽이든)
+  const { text, meta } = await extractText(makePdf(['Password must be at least 8 characters.']), 'spec.pdf');
+  assert.equal(meta.kind, 'pdf');
+  assert.match(text, /at least 8 characters/);
+
+  // 폴리필을 두 번 깔아도 기존 전역을 덮지 않는다
+  const first = globalThis.DOMMatrix;
+  installDomShims();
+  assert.equal(globalThis.DOMMatrix, first, '이미 있는 전역을 덮어썼다');
+
+  // DOMMatrix 대체 구현의 행렬 연산이 실제로 맞는지 (틀리면 좌표가 조용히 어긋난다)
+  const m = new DOMMatrixShim([2, 0, 0, 3, 10, 20]);
+  assert.deepEqual(m.transformPoint({ x: 1, y: 1 }), { x: 12, y: 23, z: 0, w: 1 });
+
+  const inv = m.inverse();
+  const back = inv.transformPoint(m.transformPoint({ x: 4, y: 5 }));
+  assert.ok(Math.abs(back.x - 4) < 1e-9 && Math.abs(back.y - 5) < 1e-9, '역행렬이 원점 복귀에 실패');
+
+  // translate 는 곱셈 순서를 지켜야 한다 (스케일이 이동에 반영)
+  const t = new DOMMatrixShim([2, 0, 0, 2, 0, 0]).translate(5, 5);
+  assert.equal(t.e, 10);
+  assert.equal(t.f, 10);
+
+  // 문자열/4x4 배열 초기화
+  assert.equal(new DOMMatrixShim('matrix(1, 0, 0, 1, 7, 8)').e, 7);
+  const m4 = new DOMMatrixShim([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3, 4, 0, 1]);
+  assert.equal(m4.e, 3);
+  assert.equal(m4.f, 4);
+});
+
+test('PDF 오류 메시지는 원인별로 구분한다', () => {
+  const { describePdfError } = require('../src/extract/pdf');
+  assert.match(describePdfError(new Error('DOMMatrix is not defined'), '여는'), /그래픽 API/);
+  assert.match(describePdfError(new Error('Password required'), '여는'), /암호/);
+  assert.match(describePdfError(new Error('Invalid PDF structure'), '여는'), /손상/);
+  assert.match(describePdfError(new Error('something else'), '읽는'), /읽는 중 오류/);
+});
 test('확장자가 없어도 매직 넘버로 형식을 판별한다', async () => {
   const pdf = await extractText(makePdf(['Retry up to 3 times.']), 'unknown-name');
   assert.equal(pdf.meta.kind, 'pdf');
@@ -566,6 +615,15 @@ test('GET /api/health', () => withServer(async (base) => {
   const data = await (await fetch(`${base}/api/health`)).json();
   assert.equal(data.ok, true);
   assert.equal(data.service, 'SpecToTC');
+}));
+
+test('GET /api/health 는 PDF DOM 구현 상태를 알려준다', () => withServer(async (base) => {
+  const data = await (await fetch(base + '/api/health')).json();
+  assert.ok(data.pdf && data.pdf.dom, 'pdf.dom 진단 정보 없음');
+  for (const name of ['DOMMatrix', 'ImageData', 'Path2D']) {
+    assert.ok(['native', 'shim', 'preexisting'].includes(data.pdf.dom[name]), `${name} 상태 불명: ${data.pdf.dom[name]}`);
+  }
+  assert.equal(typeof data.pdf.nativeCanvas, 'boolean');
 }));
 
 test('POST /api/generate-tc', () => withServer(async (base) => {

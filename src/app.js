@@ -10,6 +10,7 @@ const { diffSpecs } = require('./diff');
 const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
 const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
+const { domSupport } = require('./extract/pdf');
 const auth = require('./auth');
 const { limiter } = require('./ratelimit');
 const ai = require('./ai');
@@ -159,6 +160,8 @@ function createApp() {
         tokenRequired: Boolean((process.env.SPECTOTC_AI_TOKEN || '').trim()),
       },
       upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
+      // PDF 처리에 쓰는 DOM 구현 — "DOMMatrix is not defined" 류 문제를 바로 진단하기 위한 정보
+      pdf: { dom: domSupport().source, nativeCanvas: domSupport().native },
       sessionHours: auth.sessionHours(),
     });
   });
