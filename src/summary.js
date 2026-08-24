@@ -11,6 +11,7 @@
  */
 const { WEIGHTS, LABELS, truncate, clean, formatCriterion } = require('./engine/generator');
 const { parseDocument } = require('./engine/parser');
+const { buildQaPlan } = require('./qaPlan');
 
 const OP_TEXT = { '>=': '이상', '<=': '이하', '>': '초과', '<': '미만' };
 
@@ -147,11 +148,14 @@ function collectRisks(requirements) {
 
 /**
  * @param {string|object} input 기획서 원문 또는 parseDocument 결과
- * @param {{topN?: number, testCases?: Array}} options
+ * @param {{topN?: number, testCases?: Array, rawText?: string, qaPlan?: boolean}} options
+ *   rawText  URL·Figma·목표 문장 추출에 원문이 필요하다. input 이 문자열이면 자동으로 쓰인다.
+ *   qaPlan   false 로 주면 QA 검증 분석서(6개 섹션) 생성을 건너뛴다.
  */
 function summarizeSpec(input, options = {}) {
   const parsed = typeof input === 'string' ? parseDocument(input) : input;
   const requirements = parsed.requirements || [];
+  const rawText = typeof input === 'string' ? input : (options.rawText || '');
   const topN = options.topN || 8;
 
   const scored = requirements
@@ -209,6 +213,11 @@ function summarizeSpec(input, options = {}) {
     : '요구사항으로 인식된 문장이 없습니다. 문서가 이미지·표 위주인지 확인해 주세요.';
 
   const result = { headline, overview, keyPoints, byArea, numericRules, risks };
+
+  // QA 검증 분석서 — 사내 표준 6개 고정 섹션
+  if (options.qaPlan !== false) {
+    result.qaPlan = buildQaPlan(requirements, rawText, { keyPoints });
+  }
 
   if (Array.isArray(options.testCases)) {
     const covered = new Set(options.testCases.map((tc) => tc.requirement_id || (tc.requirement && tc.requirement.id)));

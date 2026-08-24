@@ -6,11 +6,11 @@
  */
 
 function renderSpecSummary() {
-  const box = $('#summaryView');
+  const box = $('#summaryBody');
   const s = state.specSummary;
 
   if (!s) {
-    box.innerHTML = '<div class="summary-empty-box">기획서를 생성하면 핵심 요약이 표시됩니다.</div>';
+    box.innerHTML = '<div class="summary-empty-box">파일을 올리거나 좌측에서 생성하면 요약과 QA 검증 분석서가 표시됩니다.</div>';
     return;
   }
 
@@ -109,9 +109,14 @@ function renderSpecSummary() {
       <button id="btnCopySummary" class="btn btn-sm btn-ghost">요약 마크다운 복사</button>
     </div>`;
 
-  box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + areaCard;
+  // 사내 표준 6개 섹션 검증 분석서를 요약 아래에 붙인다.
+  const qaPlan = renderQaPlan(s.qaPlan, ai);
+
+  box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + areaCard + qaPlan;
   $('#btnAiSummary').addEventListener('click', requestAiSummary);
   $('#btnCopySummary').addEventListener('click', copySummaryText);
+  if ($('#btnCopyQaPlan')) $('#btnCopyQaPlan').addEventListener('click', copyQaPlan);
+  if ($('#btnCopyFlow')) $('#btnCopyFlow').addEventListener('click', copyFlow);
 }
 
 /** 요약을 마크다운으로 변환 (회의록·티켓 붙여넣기용) */
@@ -177,6 +182,30 @@ async function requestAiSummary() {
     setStatus(`AI 요약 실패: ${err.message}`, 'error');
     btn.disabled = false;
     btn.textContent = 'Claude 서술형 요약';
+  }
+}
+
+/**
+ * 요약 탭에 올린 파일을 요약한다 (TC 생성 없이 요약만).
+ * 좌측 텍스트 영역도 함께 채워 두어 이후 TC 생성으로 이어갈 수 있게 한다.
+ */
+async function summarizeOnly(specText) {
+  setStatus('요약 중…');
+  try {
+    const data = await api('/api/summarize', { specText, useAI: false });
+    state.specSummary = data.summary;
+    state.aiSummary = null;
+    renderSpecSummary();
+    setView('summary');
+
+    const qa = data.summary.qaPlan || {};
+    setStatus([
+      `요약 완료 — ${data.summary.headline}`,
+      `검증 분석서: URL ${(qa.urls || []).length}건 · 준비 항목 ${(qa.todos || []).length}건 · 비목표 ${(qa.nonGoals || []).length}건`,
+      '좌측 [테스트케이스 생성] 을 누르면 같은 문서로 TC 까지 만듭니다.',
+    ].join('\n'), 'ok');
+  } catch (err) {
+    setStatus(`요약 실패: ${err.message}`, 'error');
   }
 }
 

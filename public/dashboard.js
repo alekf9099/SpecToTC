@@ -3,6 +3,7 @@
 /* ------------------------------------------------------------------ state */
 const state = {
   testCases: [],
+  sourceName: null,
   specSummary: null,
   aiSummary: null,
   view: 'tc',
@@ -245,8 +246,9 @@ function triggerDownload(blob, fileName) {
 /* ------------------------------------------------------------ file upload */
 const KIND_LABEL = { pdf: 'PDF', docx: 'Word(.docx)', text: '텍스트' };
 
-function showFileChip(meta) {
-  const chip = $('#fileChip');
+function showFileChip(meta, selector) {
+  const chip = $(selector || '#fileChip');
+  if (!chip) return;
   if (!meta) { chip.hidden = true; chip.innerHTML = ''; return; }
 
   const bits = [KIND_LABEL[meta.kind] || meta.kind, `${meta.chars.toLocaleString()}자`];
@@ -256,18 +258,26 @@ function showFileChip(meta) {
   if (meta.encoding && meta.encoding !== 'utf-8') bits.push(meta.encoding);
 
   chip.hidden = false;
-  chip.innerHTML = `<b>${esc(meta.fileName)}</b><span>${esc(bits.join(' · '))}</span>` +
-    '<button type="button" id="btnChipClear" title="첨부 해제" aria-label="첨부 해제">✕</button>';
-  $('#btnChipClear').addEventListener('click', (e) => {
+  chip.innerHTML = `<b>${esc(meta.fileName)}</b><span>${esc(bits.join(' · '))}</span>`
+    + '<button type="button" class="chip-clear" title="첨부 해제" aria-label="첨부 해제">✕</button>';
+  chip.querySelector('.chip-clear').addEventListener('click', (e) => {
     e.stopPropagation();
     $('#fileInput').value = '';
-    showFileChip(null);
+    if ($('#summaryFileInput')) $('#summaryFileInput').value = '';
+    showFileChip(null, '#fileChip');
+    showFileChip(null, '#summaryFileChip');
   });
 }
 
-async function uploadFile(file) {
+/**
+ * @param {File} file
+ * @param {{mode?: 'generate'|'summary', dropzone?: string, chip?: string}} opts
+ *   mode 'summary' 면 TC 생성 대신 요약만 실행한다 (요약 탭에 올린 경우).
+ */
+async function uploadFile(file, opts = {}) {
   if (!file) return;
-  const dz = $('#dropzone');
+  const mode = opts.mode || 'generate';
+  const dz = $(opts.dropzone || '#dropzone');
   dz.classList.add('is-busy');
   setStatus(`${file.name} 에서 텍스트를 추출하는 중…`);
 
@@ -289,12 +299,16 @@ async function uploadFile(file) {
     if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
 
     $('#specText').value = data.specText;
-    showFileChip(data.meta);
+    state.sourceName = data.meta.fileName;
+    showFileChip(data.meta, opts.chip || '#fileChip');
+    if (opts.chip && opts.chip !== '#fileChip') showFileChip(data.meta, '#fileChip');
 
     if (data.meta.truncated) {
       setStatus(`${file.name} — 문서가 길어 앞부분만 사용합니다 (${data.meta.chars.toLocaleString()}자 중 일부).`, 'error');
     }
-    await generate();
+
+    if (mode === 'summary') await summarizeOnly(data.specText);
+    else await generate();
   } catch (err) {
     setStatus(`파일 처리 실패: ${err.message}`, 'error');
   } finally {
@@ -302,40 +316,61 @@ async function uploadFile(file) {
   }
 }
 
-function bindDropzone() {
-  const dz = $('#dropzone');
-  const input = $('#fileInput');
-  const pane = document.querySelector('.pane-input');
+/**
+ * 드롭존 하나를 배선한다.
+ * @param {{zone: string, input: string, dropArea: string, chip: string, mode: string}} cfg
+ */
+function bindDropTarget(cfg) {
+  const dz = $(cfg.zone);
+  const input = $(cfg.input);
+  const area = document.querySelector(cfg.dropArea);
+  if (!dz || !input || !area) return;
+
+  const opts = { mode: cfg.mode, dropzone: cfg.zone, chip: cfg.chip };
 
   dz.addEventListener('click', () => input.click());
   dz.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
   });
-  input.addEventListener('change', () => uploadFile(input.files && input.files[0]));
-
-  // 브라우저 기본 동작(파일 열기로 페이지 이탈)을 막는다.
-  ['dragover', 'drop'].forEach((type) => {
-    window.addEventListener(type, (e) => e.preventDefault());
-  });
+  input.addEventListener('change', () => uploadFile(input.files && input.files[0], opts));
 
   let depth = 0;
-  pane.addEventListener('dragenter', (e) => {
+  area.addEventListener('dragenter', (e) => {
     if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
     depth += 1;
     dz.classList.add('is-drag');
   });
-  pane.addEventListener('dragleave', () => {
+  area.addEventListener('dragleave', () => {
     depth = Math.max(0, depth - 1);
     if (!depth) dz.classList.remove('is-drag');
   });
-  pane.addEventListener('drop', (e) => {
+  area.addEventListener('drop', (e) => {
     e.preventDefault();
     depth = 0;
     dz.classList.remove('is-drag');
     const files = e.dataTransfer && e.dataTransfer.files;
     if (!files || !files.length) return;
     if (files.length > 1) setStatus(`파일 ${files.length}개 중 첫 번째(${files[0].name})만 사용합니다.`);
-    uploadFile(files[0]);
+    uploadFile(files[0], opts);
+  });
+}
+
+function bindDropzone() {
+  // 브라우저 기본 동작(파일 열기로 페이지 이탈)을 막는다.
+  ['dragover', 'drop'].forEach((type) => {
+    window.addEventListener(type, (e) => e.preventDefault());
+  });
+
+  // 좌측 입력 패널 — 올리면 TC 생성까지 진행
+  bindDropTarget({
+    zone: '#dropzone', input: '#fileInput', dropArea: '.pane-input',
+    chip: '#fileChip', mode: 'generate',
+  });
+
+  // 우측 문서 요약 탭 — 올리면 요약만 실행
+  bindDropTarget({
+    zone: '#summaryDrop', input: '#summaryFileInput', dropArea: '#summaryView',
+    chip: '#summaryFileChip', mode: 'summary',
   });
 }
 
@@ -416,7 +451,10 @@ function bind() {
   $('#btnClear').addEventListener('click', () => {
     $('#specText').value = '';
     $('#fileInput').value = '';
-    showFileChip(null);
+    if ($('#summaryFileInput')) $('#summaryFileInput').value = '';
+    showFileChip(null, '#fileChip');
+    showFileChip(null, '#summaryFileChip');
+    state.sourceName = null;
     state.testCases = [];
     state.specSummary = null;
     state.aiSummary = null;

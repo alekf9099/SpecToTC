@@ -269,6 +269,7 @@ function createApp() {
       specSummary: summarizeSpec({ requirements: result.requirements }, {
         topN: Number((req.body && req.body.summaryTopN)) || 8,
         testCases: result.testCases,
+        rawText: specText,
       }),
       ai: { requested: Boolean(req.body && req.body.useAI), enabled: false },
     };
@@ -335,7 +336,10 @@ function createApp() {
 
     const parsed = parseDocument(specText);
     const topN = Number(req.body && req.body.topN);
-    const summary = summarizeSpec(parsed, { topN: Number.isInteger(topN) && topN > 0 && topN <= 50 ? topN : 8 });
+    const summary = summarizeSpec(parsed, {
+      topN: Number.isInteger(topN) && topN > 0 && topN <= 50 ? topN : 8,
+      rawText: specText,
+    });
 
     const response = {
       ok: true,

@@ -135,11 +135,25 @@
       </div>
 
       <div class="summary-view" id="summaryView" hidden>
-        <div class="summary-empty-box">기획서를 생성하면 핵심 요약이 표시됩니다.</div>
+        <div id="summaryDrop" class="dropzone dropzone-sm" tabindex="0" role="button"
+             aria-label="기획서 파일 업로드 — 클릭하거나 파일을 끌어다 놓으세요">
+          <input type="file" id="summaryFileInput" hidden
+                 accept=".md,.markdown,.txt,.text,.pdf,.docx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+          <div class="dropzone-inner">
+            <span class="dropzone-icon" aria-hidden="true">↓</span>
+            <p class="dropzone-title">여기에 기획서 파일을 놓으면 바로 요약합니다</p>
+            <p class="dropzone-hint">.md · .txt · .pdf · .docx — 또는 <span class="link">파일 선택</span></p>
+          </div>
+          <div id="summaryFileChip" class="file-chip" hidden></div>
+        </div>
+        <div id="summaryBody">
+          <div class="summary-empty-box">파일을 올리거나 좌측에서 생성하면 요약과 QA 검증 분석서가 표시됩니다.</div>
+        </div>
       </div>
     </section>
   </main>
 
+  <script src="./qa-plan-view.js"></script>
   <script src="./summary-view.js"></script>
   <script src="./dashboard.js"></script>
 </body>

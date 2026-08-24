@@ -37,12 +37,19 @@ const SUMMARY_SYSTEM_PROMPT = `당신은 웹/모바일 서비스의 시니어 QA
 - 검증 관점(무엇이 깨지면 치명적인가)에서 우선순위를 매긴다.
 - 문서에 없어서 QA 가 물어봐야 하는 것은 openQuestions 에 넣는다.
 
+사내 표준 검증 분석서 항목(목표 / 목표가 아닌 것 / 검증 시 주의점 / 해야 할 일)도 함께 채운다.
+문서에 없는 내용은 지어내지 말고 해당 항목을 빈 배열로 둔다.
+
 출력 형식: 설명 없이 JSON 객체만 출력한다.
 {"headline":"이 문서가 무엇을 정의하는지 한 문장",
  "scope":["다루는 범위 항목", "..."],
  "criticalFlows":[{"name":"흐름 이름","why":"왜 중요한지","watchOut":"깨지기 쉬운 지점"}],
  "openQuestions":["기획에 물어봐야 할 질문", "..."],
- "riskNotes":["QA 진행 시 유의사항", "..."]}`;
+ "riskNotes":["QA 진행 시 유의사항", "..."],
+ "goals":["이 프로젝트/검증의 목표", "..."],
+ "nonGoals":["이번 범위가 아닌 것 (추후·차기·미지원 항목)", "..."],
+ "testFocus":["QA 가 반드시 수행해야 할 테스트", "..."],
+ "todos":["검증 착수 전 준비해야 할 일", "..."]}`;
 
 function isEnabled() {
   return Boolean(process.env.ANTHROPIC_API_KEY);
@@ -170,6 +177,10 @@ function sanitizeSummary(raw) {
   return {
     headline: String(raw.headline || '').slice(0, 500),
     scope: strArray(raw.scope, 12, 200),
+    goals: strArray(raw.goals, 10, 300),
+    nonGoals: strArray(raw.nonGoals, 10, 300),
+    testFocus: strArray(raw.testFocus, 14, 300),
+    todos: strArray(raw.todos, 12, 300),
     criticalFlows: Array.isArray(raw.criticalFlows)
       ? raw.criticalFlows.slice(0, 8).map((f) => ({
         name: String(f.name || '').slice(0, 120),
