@@ -57,13 +57,14 @@ SpecToTC/
 │   │   ├── index.js          업로드 파일 → 텍스트 (형식 판별·인코딩 처리)
 │   │   ├── zip.js            의존성 없는 최소 ZIP 리더 (.docx 용)
 │   │   ├── docx.js           .docx → 마크다운 유사 텍스트
-│   │   └── pdf.js            .pdf → 텍스트 (pdfjs-dist, 머리글·바닥글 제거)
+│   │   ├── pdf.js            .pdf → 텍스트 (pdfjs-dist, 머리글·바닥글 제거)
+│   │   └── domShims.js       Node 용 DOMMatrix/ImageData/Path2D 폴리필
 │   ├── csv.js                CSV 변환 (UTF-8 BOM, 수식 인젝션 방지)
 │   ├── diff.js               기획서 변경분 추출 + 회귀 TC 생성
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js / summary-view.js / qa-plan-view.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (67 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (70 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -124,6 +125,15 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 - 확장자가 없거나 잘못돼도 매직 넘버(`%PDF-`, ZIP 시그니처)로 형식을 판별합니다.
 - 기본 업로드 상한 25MB (`SPECTOTC_MAX_UPLOAD`), 기획서 텍스트 상한 30만자 (`SPECTOTC_MAX_SPEC`).
 - 스캔 이미지 PDF 는 텍스트가 없어 실패합니다(OCR 필요). 이 경우 오류 메시지로 안내합니다.
+- 특정 페이지에서 오류가 나면 그 페이지만 건너뛰고 나머지 텍스트를 살립니다 (`meta.failedPages`).
+> **PDF 처리와 `DOMMatrix`** — `pdfjs-dist` 는 Node 에서 `DOMMatrix`·`ImageData`·`Path2D` 를
+> optionalDependency 인 `@napi-rs/canvas`(네이티브 바이너리)에서 가져옵니다. 그 패키지가 없는 환경
+> (다른 OS·arch, `npm i --omit=optional`, 서버리스 번들에 `.node` 가 포함되지 않은 경우)에서는
+> pdf.js **import 자체가 실패**해 모든 PDF 업로드가 `DOMMatrix is not defined` 로 끊깁니다.
+> 이를 막기 위해 순수 JS 폴리필([`src/extract/domShims.js`](src/extract/domShims.js))을 내장했습니다.
+> 네이티브 canvas 가 있으면 그쪽을 우선 쓰고, 없으면 폴리필로 동작합니다.
+> 현재 어느 쪽을 쓰는지는 `GET /api/health` 의 `pdf.dom` 으로 확인할 수 있습니다.
+
 
 ---
 
