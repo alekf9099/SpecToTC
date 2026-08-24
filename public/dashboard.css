@@ -722,3 +722,17 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 
 /* 테마 전환 버튼 — 상단바에서 너비가 흔들리지 않게 최소폭을 준다 */
 #btnTheme { min-width: 74px; text-align: center; }
+
+/* 웹사이트 분석 탭 */
+.input-block { width: 100%; flex: none; margin-bottom: 10px; }
+.web-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
+.web-forms { margin: 8px 0 0; padding: 0; list-style: none; }
+.web-forms li {
+  padding: 10px 12px; margin-bottom: 6px; border-radius: 10px;
+  background: var(--muted); border: 1px solid var(--border);
+}
+.web-forms .mono { display: inline-block; margin-bottom: 4px; }
+.web-warn {
+  margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; line-height: 1.7;
+  color: var(--on-amber); background: hsl(38 92% 60% / 0.10); border: 1px solid hsl(38 92% 60% / 0.30);
+}

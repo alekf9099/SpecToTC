@@ -11,6 +11,10 @@ const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
 const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
 const { domSupport } = require('./extract/pdf');
+const { fetchPage } = require('./web/fetchPage');
+const { buildInventory } = require('./web/inventory');
+const { buildWebTestCases } = require('./web/webTestCases');
+const { buildWebSummary } = require('./web/webSummary');
 const auth = require('./auth');
 const { limiter } = require('./ratelimit');
 const ai = require('./ai');
@@ -330,6 +334,64 @@ function createApp() {
     res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
     logMeta('export.csv', { rows: testCases.length, bytes: Buffer.byteLength(csv) });
     res.send(csv);
+  });
+
+  /* --------------------------------------------------- 웹사이트 화면 분석 */
+  // 서버가 외부로 요청을 보내므로(SSRF 표면) 한도를 따로 좁게 잡는다.
+  const webLimiter = limiter({
+    name: 'web', limit: 10, windowMs: 5 * 60 * 1000,
+    message: '웹사이트 분석 요청이 너무 많습니다.',
+  });
+
+  app.post('/api/analyze-url', webLimiter, async (req, res) => {
+    const url = req.body && (req.body.url || req.body.link);
+    if (typeof url !== 'string' || !url.trim()) return badRequest(res, '분석할 주소를 입력해 주세요.');
+
+    const started = Date.now();
+    let page;
+    try {
+      page = await fetchPage(url);
+    } catch (err) {
+      logMeta('web.fetchFailed', { ms: Date.now() - started });
+      return badRequest(res, err.message);
+    }
+
+    try {
+      const inventory = buildInventory(page.html, page.finalUrl);
+      const testCases = buildWebTestCases(inventory);
+      const summary = buildWebSummary(inventory, testCases);
+
+      logMeta('web.ok', {
+        host: new URL(page.finalUrl).hostname,
+        bytes: page.bytes,
+        forms: inventory.interaction.forms.length,
+        tc: testCases.length,
+        ms: Date.now() - started,
+      });
+
+      res.json({
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - started,
+        page: {
+          url: page.url,
+          finalUrl: page.finalUrl,
+          status: page.status,
+          bytes: page.bytes,
+          redirects: page.redirects,
+          truncated: page.truncated,
+          title: inventory.page.title,
+        },
+        inventory,
+        testCases,
+        specSummary: summary,
+        summary: summarize(testCases),
+        areas: [...new Set(testCases.map((tc) => tc.area))],
+      });
+    } catch (err) {
+      logMeta('web.parseFailed', { ms: Date.now() - started });
+      badRequest(res, `페이지를 분석하지 못했습니다: ${err.message}`);
+    }
   });
 
   /* ------------------------------------------------------- 기획서 요약 */
