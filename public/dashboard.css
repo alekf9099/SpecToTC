@@ -738,32 +738,71 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
   color: var(--on-amber); background: hsl(38 92% 60% / 0.10); border: 1px solid hsl(38 92% 60% / 0.30);
 }
 
-/* 발견된 폼 편집기 */
-.web-editor { margin-top: 16px; }
-.wf-intro { margin-bottom: 12px; }
+/* ------------------------------------------------ 웹 분석 패널 스크롤 */
+/* .tab-panel 이 flex 컨테이너라, 내용이 넘치면 자식이 눌려 찌그러진다.
+   웹 패널은 개별 자식을 줄이는 대신 패널 전체를 스크롤한다. */
+.tab-panel[data-panel="web"] { overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+.tab-panel[data-panel="web"] > * { flex: 0 0 auto; }
+#webResult { overflow: visible; }
+
+/* ------------------------------------------------ 발견된 폼 편집기 */
+.web-editor { margin-top: 18px; }
+.wf-intro { margin-bottom: 10px; }
+
 .wf-form {
-  padding: 14px; margin-bottom: 12px; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 12px; border-radius: 12px;
   background: var(--surface-2); border: 1px solid var(--border);
 }
-.wf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12.5px; }
-.wf-table { font-size: 11px; }
-.wf-table th { white-space: nowrap; }
-.wf-table td { padding: 5px 6px; vertical-align: middle; }
-.wf-table .input { width: 100%; min-width: 90px; padding: 5px 7px; font-size: 11px; }
-.wf-table .wf-num { min-width: 62px; }
-.wf-name { min-width: 130px; line-height: 1.5; }
-.wf-name b { display: block; }
-.wf-name .mono { font-size: 10px; }
-.wf-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-muted); cursor: pointer; }
+.wf-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; cursor: pointer; list-style: none;
+}
+.wf-head::-webkit-details-marker { display: none; }
+.wf-head::before {
+  content: '▸'; color: var(--fg-subtle); font-size: 10px; transition: transform var(--dur) ease;
+}
+.wf-form[open] > .wf-head::before { transform: rotate(90deg); }
+.wf-action { margin: 8px 0 12px; font-size: 10.5px; color: var(--fg-subtle); word-break: break-all; }
+
+/* 한 필드 = 한 카드. 좁은 폭에서 7열 표는 읽을 수 없다. */
+.wf-field {
+  padding: 11px 12px; margin-bottom: 8px; border-radius: 10px;
+  background: var(--sunken); border: 1px solid var(--divider);
+}
+.wf-field-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
+.wf-field-head b { margin-right: 2px; }
+.wf-field-head .wf-check { margin-left: auto; }
+.wf-observed { margin: 5px 0 9px; font-size: 10.5px; color: var(--fg-subtle); }
+.wf-added { border-color: hsl(163 72% 50% / 0.4); background: hsl(163 72% 50% / 0.06); }
+
+.wf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wf-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wf-cell-wide { grid-column: 1 / -1; }
+.wf-cell > span {
+  font-size: 10.5px; font-weight: 600; color: var(--fg-muted);
+  display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap;
+}
+/* --fg-faint 는 10.5px 본문에서 대비 2.65:1 로 AA 미달이라 --fg-subtle 을 쓴다 */
+.wf-cell > span em { font-weight: 400; font-style: normal; color: var(--fg-subtle); }
+.wf-cell .input { width: 100%; padding: 6px 8px; font-size: 11.5px; }
+.wf-cond { margin-bottom: 12px; }
+
+.wf-check {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--fg-muted); cursor: pointer; white-space: nowrap;
+}
 .wf-check input { accent-color: var(--primary); margin: 0; }
-.wf-added { background: hsl(163 72% 50% / 0.07); }
+
 .wf-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.wf-add .input { flex: 1; min-width: 160px; }
-.wf-actions { margin-top: 4px; }
+.wf-add .input { flex: 1; min-width: 150px; }
+.wf-actions { margin-top: 4px; flex-wrap: wrap; }
+
+.tag-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9.5px; }
+.tag-ok { color: var(--on-mint); background: hsl(163 72% 50% / 0.14); border-color: hsl(163 72% 50% / 0.32); }
 
 /* 실행 검증 안내 */
 .wf-live-note { margin-top: 8px; }
 .wf-live-note b { color: var(--fg); }
 #optRenderWrap { white-space: nowrap; }
-#browserBadge { font-size: 10.5px; }
 #optRenderWrap.is-disabled { opacity: 0.55; cursor: not-allowed; }
+#browserBadge { font-size: 10.5px; }
