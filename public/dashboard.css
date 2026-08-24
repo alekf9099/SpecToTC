@@ -745,59 +745,54 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 .tab-panel[data-panel="web"] > * { flex: 0 0 auto; }
 #webResult { overflow: visible; }
 
-/* ------------------------------------------------ 발견된 폼 편집기 */
-.web-editor { margin-top: 18px; }
-.wf-intro { margin-bottom: 10px; }
+/* ------------------------------------------------ 테스트 값·조건 지정 */
+/* 칸이 6개였을 때는 카드 레이아웃이 필요했지만, 지금은 필드당 입력 1칸이라
+   한 줄(이름 + 값)로 충분하다. 전체는 기본 접힘 — 안 써도 TC 는 이미 나온다. */
+.web-editor { margin-top: 16px; }
+
+.wf-root {
+  border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface-2); padding: 10px 12px;
+}
+.wf-root-head, .wf-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  cursor: pointer; list-style: none;
+}
+.wf-root-head::-webkit-details-marker, .wf-head::-webkit-details-marker { display: none; }
+.wf-root-head::before, .wf-head::before {
+  content: '▸'; color: var(--fg-subtle); font-size: 10px;
+  transition: transform var(--dur) ease;
+}
+.wf-root[open] > .wf-root-head::before,
+.wf-form[open] > .wf-head::before { transform: rotate(90deg); }
+.wf-root-head { font-size: 12.5px; }
+.wf-root-head > em {
+  font-style: normal; font-size: 10.5px; color: var(--fg-subtle);
+  flex-basis: 100%; padding-left: 14px;
+}
 
 .wf-form {
-  padding: 12px 14px; margin-bottom: 12px; border-radius: 12px;
-  background: var(--surface-2); border: 1px solid var(--border);
-}
-.wf-head {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  font-size: 12.5px; cursor: pointer; list-style: none;
-}
-.wf-head::-webkit-details-marker { display: none; }
-.wf-head::before {
-  content: '▸'; color: var(--fg-subtle); font-size: 10px; transition: transform var(--dur) ease;
-}
-.wf-form[open] > .wf-head::before { transform: rotate(90deg); }
-.wf-action { margin: 8px 0 12px; font-size: 10.5px; color: var(--fg-subtle); word-break: break-all; }
-
-/* 한 필드 = 한 카드. 좁은 폭에서 7열 표는 읽을 수 없다. */
-.wf-field {
-  padding: 11px 12px; margin-bottom: 8px; border-radius: 10px;
+  margin-top: 10px; padding: 9px 11px; border-radius: 10px;
   background: var(--sunken); border: 1px solid var(--divider);
 }
-.wf-field-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
-.wf-field-head b { margin-right: 2px; }
-.wf-field-head .wf-check { margin-left: auto; }
-.wf-observed { margin: 5px 0 9px; font-size: 10.5px; color: var(--fg-subtle); }
-.wf-added { border-color: hsl(163 72% 50% / 0.4); background: hsl(163 72% 50% / 0.06); }
+.wf-head { font-size: 12px; }
+.wf-action { margin: 7px 0 9px; font-size: 10.5px; color: var(--fg-subtle); word-break: break-all; }
 
-.wf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.wf-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.wf-cell-wide { grid-column: 1 / -1; }
-.wf-cell > span {
-  font-size: 10.5px; font-weight: 600; color: var(--fg-muted);
-  display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap;
+/* 필드 한 줄: 이름(왼쪽) + 값 입력(오른쪽). 좁아지면 세로로 쌓인다. */
+.wf-field {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px; flex-wrap: wrap;
 }
-/* --fg-faint 는 10.5px 본문에서 대비 2.65:1 로 AA 미달이라 --fg-subtle 을 쓴다 */
-.wf-cell > span em { font-weight: 400; font-style: normal; color: var(--fg-subtle); }
-.wf-cell .input { width: 100%; padding: 6px 8px; font-size: 11.5px; }
-.wf-cond { margin-bottom: 12px; }
-
-.wf-check {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: var(--fg-muted); cursor: pointer; white-space: nowrap;
+.wf-field-name {
+  flex: 0 0 132px; min-width: 0; font-size: 11.5px; line-height: 1.4; color: var(--fg);
 }
-.wf-check input { accent-color: var(--primary); margin: 0; }
+.wf-field-name em {
+  display: block; font-style: normal; font-size: 10px; color: var(--fg-subtle);
+}
+.wf-field .input { flex: 1 1 150px; min-width: 0; padding: 6px 8px; font-size: 11.5px; }
+.wf-cond { padding-bottom: 9px; margin-bottom: 9px; border-bottom: 1px solid var(--divider); }
 
-.wf-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.wf-add .input { flex: 1; min-width: 150px; }
-.wf-actions { margin-top: 4px; flex-wrap: wrap; }
-
-.tag-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9.5px; }
+.wf-actions { margin-top: 12px; flex-wrap: wrap; }
 .tag-ok { color: var(--on-mint); background: hsl(163 72% 50% / 0.14); border-color: hsl(163 72% 50% / 0.32); }
 
 /* 실행 검증 안내 */

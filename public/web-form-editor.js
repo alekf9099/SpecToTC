@@ -1,22 +1,23 @@
 'use strict';
 
 /**
- * 발견된 폼 편집기 — QA 가 조건을 직접 지정해 TC 를 다시 만든다.
+ * 발견된 폼 편집기 — QA 가 값을 지정해 TC 를 다시 만든다.
  *
- * 왜 필요한가
- *   페이지 HTML 은 "무엇이 있는지" 만 알려준다. 실제 규칙(최대 길이, 필수 여부,
- *   사내 형식 규칙, 선행 조건)은 대부분 HTML 에 없고 QA 가 알고 있다.
- *   그 조건을 넣으면 문서 기반 엔진과 같은 수준의 경계값·조건 분기 TC 가 나온다.
- *   JS 로 그려져 잡히지 않은 필드는 직접 추가할 수 있다.
+ * 화면에는 값어치가 확실한 두 칸만 둔다.
+ *   · 정상 테스트 값 — [실제로 제출해 확인] 의 유일한 입력원이고, TC 수행 단계에 그대로 들어간다
+ *   · 선행 조건     — 폼당 1칸. 조건 충족/미충족 두 갈래 TC 를 만든다
+ *
+ * 처음에는 칸이 6개(필수·최소·최대·형식 규칙·비고·필드 추가)였는데, 입력 부담만
+ * 크고 대부분 TC 를 한 건씩 늘리는 수준이었다. 특히 최대 길이는 HTML 에 이미
+ * 있는 경우가 많고(naver 검색창 255 자동 인식), 필드 추가는 브라우저 렌더링
+ * 분석이 생기면서 대부분 필요 없어졌다.
+ *
+ * 서버(applyOverrides)는 지운 칸들을 여전히 처리한다 — API 로는 쓸 수 있다.
+ * 화면에서만 뺐다.
  *
  * 재생성은 /api/web-testcases 를 쓴다 — 페이지를 다시 가져오지 않으므로
  * 조건을 고쳐가며 여러 번 눌러도 네트워크·레이트리밋을 소모하지 않는다.
  */
-
-const WEB_FIELD_TYPES = [
-  'text', 'email', 'password', 'tel', 'url', 'number', 'search', 'date',
-  'file', 'checkbox', 'radio', 'textarea', 'select',
-];
 
 /** 페이지에서 이미 읽어낸 제약을 한 줄로 — 뭘 덮어쓰는지 알고 입력하게 */
 function observedSummary(field) {
@@ -30,89 +31,43 @@ function observedSummary(field) {
   return out.length ? `페이지 관측: ${out.join(' · ')}` : '페이지에서 읽어낸 제약 없음';
 }
 
-/**
- * 필드 하나를 카드로 그린다.
- *
- * 표(7열)로 만들었더니 입력 패널 폭에서 각 칸이 90px 밑으로 눌리고, 헤더가
- * 가로 스크롤 밖으로 나가 무슨 칸인지 알 수 없었다. 칸마다 라벨을 붙인
- * 카드가 좁은 폭에서 훨씬 낫다.
- */
-function fieldCard(fi, xi, field) {
-  const c = field.constraints || {};
-  const added = field.source === 'user-added';
-  const num = (v) => (v != null ? esc(v) : '');
+/** 필드 한 줄 — 이름과 "정상 테스트 값" 한 칸 */
+function fieldRow(fi, xi, field) {
+  const observed = observedSummary(field);
 
-  return `<div class="wf-field${added ? ' wf-added' : ''}" data-form="${fi}" data-field="${xi}">
-      <div class="wf-field-head">
-        <b>${esc(field.label)}</b>
-        <span class="tag">${esc(field.type)}</span>
-        ${field.name ? `<span class="tag tag-mono">${esc(field.name)}</span>` : ''}
-        ${added ? '<span class="tag tag-num">직접 추가</span>' : ''}
-        <label class="wf-check" title="이 필드를 비우고 제출했을 때 막히는지 확인하는 TC 를 만듭니다">
-          <input type="checkbox" data-k="required"${c.required ? ' checked' : ''} />
-          <span>필수</span>
-        </label>
-      </div>
-      <p class="wf-observed">${esc(observedSummary(field))}</p>
-
-      <div class="wf-grid">
-        <label class="wf-cell">
-          <span>최소 길이</span>
-          <input class="input" type="number" min="0" data-k="minLength" value="${num(c.minLength)}" placeholder="없음" />
-        </label>
-        <label class="wf-cell">
-          <span>최대 길이</span>
-          <input class="input" type="number" min="0" data-k="maxLength" value="${num(c.maxLength)}" placeholder="없음" />
-        </label>
-        <label class="wf-cell wf-cell-wide">
-          <span>정상 테스트 값 <em>실제 제출에 쓰입니다</em></span>
-          <input class="input" type="text" data-k="testValue" value="${esc(field.testValue || '')}"
-                 placeholder="예: 자동차 / qa@muhayu.com" />
-        </label>
-        <label class="wf-cell wf-cell-wide">
-          <span>형식 규칙 <em>HTML 에 없는 사내 규칙</em></span>
-          <input class="input" type="text" data-k="rule" value="${esc(field.rule || '')}"
-                 placeholder="예: 사내 도메인만 허용 / 숫자만" />
-        </label>
-        <label class="wf-cell wf-cell-wide">
-          <span>조건 · 비고</span>
-          <input class="input" type="text" data-k="note" value="${esc(field.note || '')}"
-                 placeholder="예: 쿠폰이 있을 때만 활성화" />
-        </label>
-      </div>
-    </div>`;
+  return `<label class="wf-field" data-form="${fi}" data-field="${xi}">
+      <span class="wf-field-name">
+        ${esc(field.label)}
+        <em>${esc(field.type)}${observed.startsWith('페이지 관측') ? ` · ${esc(observed.replace('페이지 관측: ', ''))}` : ''}</em>
+      </span>
+      <input class="input" type="text" data-k="testValue" value="${esc(field.testValue || '')}"
+             placeholder="이 값으로 테스트 (예: 자동차)" />
+    </label>`;
 }
 
 function formEditor(form, fi) {
-  const cards = form.fields.map((f, xi) => fieldCard(fi, xi, f)).join('');
-  const filled = form.fields.filter((f) => f.testValue || f.rule || f.note || f.constraints.required).length;
+  const rows = form.fields.map((f, xi) => fieldRow(fi, xi, f)).join('');
+  const filled = form.fields.filter((f) => f.testValue).length;
 
-  return `<details class="wf-form" data-form="${fi}" open>
+  return `<details class="wf-form" data-form="${fi}">
       <summary class="wf-head">
         <b>${esc(form.name)}</b>
         <span class="tag">${esc(form.method)}</span>
         <span class="tag">${esc(form.fields.length)}개 필드</span>
-        ${filled ? `<span class="tag tag-ok">${filled}개 지정됨</span>` : ''}
+        ${filled ? `<span class="tag tag-ok">${filled}개 입력됨</span>` : ''}
+        ${form.condition ? '<span class="tag tag-ok">조건 지정</span>' : ''}
         ${form.outsideForm ? '<span class="tag tag-warn">form 태그 밖</span>' : ''}
       </summary>
 
       <p class="wf-action mono">${esc(form.method)} ${esc(form.action)}</p>
 
-      <label class="wf-cell wf-cell-wide wf-cond">
-        <span>이 폼의 선행 조건 <em>넣으면 조건 충족·미충족 TC 를 함께 만듭니다</em></span>
+      <label class="wf-field wf-cond">
+        <span class="wf-field-name">선행 조건<em>충족·미충족 두 갈래 TC 를 만듭니다</em></span>
         <input class="input" type="text" data-cond="${fi}" value="${esc(form.condition || '')}"
                placeholder="예: 로그인한 회원만 접근 가능" />
       </label>
 
-      ${cards || '<p class="detail-empty">읽어낸 필드가 없습니다. 아래에서 직접 추가하세요.</p>'}
-
-      <div class="wf-add" data-add="${fi}">
-        <input class="input" type="text" data-k="label" placeholder="잡히지 않은 필드 이름 (예: 쿠폰 코드)" />
-        <select class="select" data-k="type">
-          ${WEB_FIELD_TYPES.map((t) => `<option value="${t}">${t}</option>`).join('')}
-        </select>
-        <button type="button" class="btn btn-sm" data-add-btn="${fi}">필드 추가</button>
-      </div>
+      ${rows || '<p class="detail-empty">읽어낸 입력 필드가 없습니다.</p>'}
     </details>`;
 }
 
@@ -128,29 +83,33 @@ function renderFormEditor() {
     return;
   }
 
-  box.innerHTML = `
-    <div class="wf-intro">
-      <label class="field-label">발견된 폼에 조건 지정 → TC 다시 생성</label>
-      <p class="sum-note">
-        페이지 HTML 에 없는 실제 규칙(최대 길이 · 필수 여부 · 사내 형식 규칙 · 선행 조건)을 여기에 넣으면
-        그 조건이 반영된 경계값·조건 분기 TC 가 만들어집니다. 잡히지 않은 필드는 직접 추가할 수 있습니다.
-      </p>
-    </div>
-    ${forms.map(formEditor).join('')}
-    <div class="actions wf-actions">
-      <button id="btnRegenWebTc" class="btn btn-primary">조건 반영해 TC 다시 생성</button>
-      <button id="btnLiveVerify" class="btn"
-              title="브라우저로 실제 값을 입력·제출하고 결과를 관측합니다. 서버에서 허용한 도메인만 가능합니다.">실제로 제출해 확인</button>
-      <button id="btnResetWebOverrides" class="btn btn-ghost">지정한 조건 초기화</button>
-    </div>
-    <p class="sum-note wf-live-note">
-      <b>조건 반영해 TC 다시 생성</b> 은 문서만 만듭니다(실제 조회하지 않음).
-      <b>실제로 제출해 확인</b> 은 브라우저로 정말 입력·제출해 결과를 관측하고, 기대 결과에 실측값을 넣습니다.
-    </p>`;
+  const specified = forms.filter((f) => f.condition || f.fields.some((x) => x.testValue)).length;
 
-  box.querySelectorAll('[data-add-btn]').forEach((btn) => {
-    btn.addEventListener('click', () => addFieldRow(Number(btn.dataset.addBtn)));
-  });
+  // 전체를 접어둔다 — 값을 지정하지 않아도 TC 는 이미 만들어져 있으므로,
+  // 쓸 사람만 펴는 게 맞다.
+  box.innerHTML = `
+    <details class="wf-root"${specified ? ' open' : ''}>
+      <summary class="wf-root-head">
+        <b>테스트 값 · 조건 지정</b>
+        <span class="tag">폼 ${forms.length}개</span>
+        ${specified ? `<span class="tag tag-ok">${specified}개 지정됨</span>` : ''}
+        <em>선택 — 넣으면 그 값이 반영된 TC 를 다시 만듭니다</em>
+      </summary>
+
+      ${forms.map(formEditor).join('')}
+
+      <div class="actions wf-actions">
+        <button id="btnRegenWebTc" class="btn btn-primary">값 반영해 TC 다시 생성</button>
+        <button id="btnLiveVerify" class="btn"
+                title="브라우저로 실제 값을 입력·제출하고 결과를 관측합니다. 서버에서 허용한 도메인만 가능합니다.">실제로 제출해 확인</button>
+        <button id="btnResetWebOverrides" class="btn btn-ghost">초기화</button>
+      </div>
+      <p class="sum-note wf-live-note">
+        <b>값 반영해 TC 다시 생성</b> 은 문서만 만듭니다(실제 조회하지 않음).
+        <b>실제로 제출해 확인</b> 은 브라우저로 정말 입력·제출해 결과를 관측하고, 기대 결과에 실측값을 넣습니다.
+      </p>
+    </details>`;
+
   $('#btnRegenWebTc').addEventListener('click', regenerateWebTestCases);
   $('#btnLiveVerify').addEventListener('click', liveVerify);
   $('#btnResetWebOverrides').addEventListener('click', resetWebOverrides);
@@ -176,11 +135,8 @@ function collectOverrides() {
       const xi = tr.dataset.field;
       const values = {};
       tr.querySelectorAll('[data-k]').forEach((el) => {
-        const key = el.dataset.k;
-        if (el.type === 'checkbox') values[key] = el.checked;
-        else if (el.value.trim() !== '') values[key] = el.value.trim();
+        if (el.value.trim() !== '') values[el.dataset.k] = el.value.trim();
       });
-      // 체크가 꺼진 required 는 "지정 안 함"과 구분해야 하므로 그대로 보낸다.
       if (Object.keys(values).length) entry.fields[xi] = values;
     });
 
@@ -190,39 +146,12 @@ function collectOverrides() {
   return { forms };
 }
 
-/** 페이지에서 잡히지 않은 필드를 인벤토리에 직접 추가 */
-function addFieldRow(fi) {
-  const wrap = $(`[data-add="${fi}"]`);
-  const label = wrap.querySelector('[data-k="label"]').value.trim();
-  const type = wrap.querySelector('[data-k="type"]').value;
-
-  if (!label) {
-    setStatus('추가할 필드 이름을 입력하세요.', 'error');
-    return;
-  }
-
-  // 현재 화면의 지정값을 먼저 인벤토리에 반영한 뒤 필드를 붙인다 (입력 유실 방지)
-  mergeOverridesIntoState();
-
-  const form = state.webInventory.interaction.forms[fi];
-  form.fields.push({
-    tag: type === 'textarea' || type === 'select' ? type : 'input',
-    type,
-    name: null,
-    label,
-    placeholder: null,
-    constraints: {},
-    rule: null,
-    testValue: null,
-    note: null,
-    source: 'user-added',
-  });
-
-  renderFormEditor();
-  setStatus(`"${label}" 필드를 추가했습니다. 조건을 채운 뒤 [조건 반영해 TC 다시 생성] 을 누르세요.`, 'ok');
-}
-
-/** 화면 입력값을 state.webInventory 에 반영 (재렌더 시 유실 방지) */
+/**
+ * 화면 입력값을 state.webInventory 에 반영 (재렌더 시 유실 방지).
+ *
+ * 화면에 없는 키(rule·note·length 등)는 건드리지 않는다. API 로 지정한 값이
+ * 화면을 거치면서 지워지면 안 된다.
+ */
 function mergeOverridesIntoState() {
   const overrides = collectOverrides();
   const forms = state.webInventory.interaction.forms;
@@ -232,19 +161,10 @@ function mergeOverridesIntoState() {
     if (!form) return;
     form.condition = entry.condition || null;
 
-    Object.entries(entry.fields || {}).forEach(([xi, v]) => {
-      const field = form.fields[Number(xi)];
-      if (!field) return;
-      field.constraints = { ...field.constraints };
-      if (v.required !== undefined) {
-        if (v.required) field.constraints.required = true;
-        else delete field.constraints.required;
-      }
-      if (v.maxLength !== undefined) field.constraints.maxLength = v.maxLength;
-      if (v.minLength !== undefined) field.constraints.minLength = v.minLength;
-      field.rule = v.rule || null;
+    // 값을 지운 필드도 반영해야 하므로 전체 필드를 훑는다
+    form.fields.forEach((field, xi) => {
+      const v = entry.fields[String(xi)] || {};
       field.testValue = v.testValue || null;
-      field.note = v.note || null;
     });
   });
 }
@@ -257,7 +177,7 @@ async function regenerateWebTestCases() {
 
   const btn = $('#btnRegenWebTc');
   btn.disabled = true;
-  setStatus('지정한 조건을 반영해 TC 를 다시 만드는 중…');
+  setStatus('지정한 값을 반영해 TC 를 다시 만드는 중…');
 
   try {
     const overrides = collectOverrides();
@@ -277,10 +197,10 @@ async function regenerateWebTestCases() {
 
     const a = data.applied;
     setStatus([
-      `조건 반영 완료 — TC ${state.testCases.length}건`,
-      `지정한 조건: 필드 ${a.fields}개 · 추가한 필드 ${a.added}개 · 선행 조건 ${a.conditions}개`,
-      a.fields + a.added + a.conditions === 0
-        ? '아직 지정한 조건이 없어 페이지 관측값만으로 만들었습니다.'
+      `반영 완료 — TC ${state.testCases.length}건`,
+      `테스트 값 ${a.fields}개 · 선행 조건 ${a.conditions}개`,
+      a.fields + a.conditions === 0
+        ? '아직 지정한 값이 없어 페이지 관측값만으로 만들었습니다.'
         : 'QA 지정 항목은 TC 근거란에 "QA 지정" 으로 표기됩니다.',
     ].join('\n'), 'ok');
   } catch (err) {
@@ -301,7 +221,7 @@ async function liveVerify() {
   // 확인을 누른 뒤 실패하면 "혹시 제출된 건가?" 하는 불안이 남는다.
   const blocked = browserBlockReason('submit');
   if (blocked) {
-    setStatus(`실제 제출을 할 수 없습니다 — ${blocked}\n대신 [조건 반영해 TC 다시 생성] 으로 문서 TC 를 만들 수 있습니다.`, 'error');
+    setStatus(`실제 제출을 할 수 없습니다 — ${blocked}\n대신 [값 반영해 TC 다시 생성] 으로 문서 TC 를 만들 수 있습니다.`, 'error');
     return;
   }
 
