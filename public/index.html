@@ -75,6 +75,13 @@
           공개된 페이지의 화면 요소(폼 · 입력 제약 · 버튼 · 링크 · 접근성)를 읽어 테스트케이스를 만듭니다.
           로그인이 필요한 화면이나 JS 로 그려지는 요소는 잡히지 않을 수 있습니다.
         </p>
+        <div class="options">
+          <label id="optRenderWrap" title="헤드리스 브라우저로 페이지를 열어 JS 로 그려지는 요소까지 분석합니다.">
+            <input type="checkbox" id="optRender" /> 브라우저로 렌더링 분석
+          </label>
+          <span id="browserBadge" class="badge badge-muted">브라우저 상태 확인 중…</span>
+        </div>
+
         <div class="actions">
           <button id="btnAnalyzeUrl" class="btn btn-primary">화면 분석 후 TC 생성</button>
           <button id="btnUrlSample" class="btn">예시 주소</button>

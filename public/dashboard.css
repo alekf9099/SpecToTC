@@ -464,6 +464,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 .pill-med  { color: var(--on-amber);  background: hsl(38 92% 60% / 0.13);  border-color: hsl(38 92% 60% / 0.30); }
 .pill-low  { color: var(--fg-muted);  background: var(--muted);  border-color: var(--border); }
 .pill-ai   { color: var(--on-violet); background: hsl(263 74% 65% / 0.15); border-color: hsl(263 74% 65% / 0.34); margin-left: 5px; }
+.pill-live { color: var(--on-mint); background: hsl(163 72% 50% / 0.15); border-color: hsl(163 72% 50% / 0.34); margin-left: 5px; }
 
 /* -------------------------------------------------------------------- diff */
 .diff-result { margin-top: 14px; overflow: auto; font-size: 12px; }
@@ -759,3 +760,9 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 .wf-add { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .wf-add .input { flex: 1; min-width: 160px; }
 .wf-actions { margin-top: 4px; }
+
+/* 실행 검증 안내 */
+.wf-live-note { margin-top: 8px; }
+.wf-live-note b { color: var(--fg); }
+#optRenderWrap { white-space: nowrap; }
+#browserBadge { font-size: 10.5px; }
