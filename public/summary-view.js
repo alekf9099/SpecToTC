@@ -104,10 +104,15 @@ function renderSpecSummary() {
     </div>`).join(''));
 
   const aiDisabled = $('#optAI').disabled;
+  const tcCount = (state.testCases || []).length;
   const actions = `<div class="sum-actions">
+      <button id="btnExportPdf" class="btn btn-sm btn-primary">전체 문서 PDF 내보내기</button>
+      <button id="btnExportHtml" class="btn btn-sm">HTML 파일 저장</button>
       <button id="btnAiSummary" class="btn btn-sm"${aiDisabled ? ' disabled title="ANTHROPIC_API_KEY 가 설정되지 않았습니다."' : ''}>Claude 서술형 요약</button>
       <button id="btnCopySummary" class="btn btn-sm btn-ghost">요약 마크다운 복사</button>
-    </div>`;
+    </div>
+    <p class="sum-note export-note">내보내는 문서: 문서 요약 · QA 검증 분석서${
+      tcCount ? ` · 테스트케이스 ${tcCount}건` : ' (테스트케이스는 좌측에서 생성하면 함께 포함됩니다)'}</p>`;
 
   // 사내 표준 6개 섹션 검증 분석서를 요약 아래에 붙인다.
   const qaPlan = renderQaPlan(s.qaPlan, ai);
@@ -115,6 +120,8 @@ function renderSpecSummary() {
   box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + areaCard + qaPlan;
   $('#btnAiSummary').addEventListener('click', requestAiSummary);
   $('#btnCopySummary').addEventListener('click', copySummaryText);
+  $('#btnExportPdf').addEventListener('click', () => exportReportPdf());
+  $('#btnExportHtml').addEventListener('click', () => downloadReportHtml());
   if ($('#btnCopyQaPlan')) $('#btnCopyQaPlan').addEventListener('click', copyQaPlan);
   if ($('#btnCopyFlow')) $('#btnCopyFlow').addEventListener('click', copyFlow);
 }
