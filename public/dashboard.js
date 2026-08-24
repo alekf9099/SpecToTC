@@ -158,7 +158,7 @@ function renderSummary(data) {
   state.filter.area = areaSelect.value;
 
   const hasRows = state.testCases.length > 0;
-  ['#btnCsv', '#btnExcel', '#btnJson'].forEach((id) => { $(id).disabled = !hasRows; });
+  ['#btnCsv', '#btnExcel', '#btnJson', '#btnExportPdfTc'].forEach((id) => { $(id).disabled = !hasRows; });
 }
 
 /* ---------------------------------------------------------------- actions */
@@ -494,6 +494,7 @@ function bind() {
   $('#btnExcel').addEventListener('click', () => exportCsv({ excel: true, bom: true }));
   $('#btnCsv').addEventListener('click', () => exportCsv({ excel: false, bom: false }));
   $('#btnJson').addEventListener('click', exportJson);
+  $('#btnExportPdfTc').addEventListener('click', () => exportReportPdf());
 
   $('#btnLogout').addEventListener('click', async () => {
     try {

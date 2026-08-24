@@ -611,3 +611,5 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 hsl(226 14% 40%); }
   color: hsl(243 90% 84%); background: hsl(243 76% 63% / 0.16);
   border: 1px solid hsl(243 76% 63% / 0.3);
 }
+
+.export-note { margin: -4px 0 14px; }
