@@ -18,73 +18,102 @@ const WEB_FIELD_TYPES = [
   'file', 'checkbox', 'radio', 'textarea', 'select',
 ];
 
-/** 편집기에 들어갈 한 필드의 행 */
-function fieldRow(fi, xi, field) {
+/** 페이지에서 이미 읽어낸 제약을 한 줄로 — 뭘 덮어쓰는지 알고 입력하게 */
+function observedSummary(field) {
   const c = field.constraints || {};
-  const id = `f-${fi}-${xi}`;
-  const added = field.source === 'user-added';
+  const out = [];
+  if (c.required) out.push('필수');
+  if (c.minLength != null) out.push(`최소 ${c.minLength}`);
+  if (c.maxLength != null) out.push(`최대 ${c.maxLength}`);
+  if (c.pattern) out.push('패턴 있음');
+  if (c.accept) out.push(`허용 ${c.accept}`);
+  return out.length ? `페이지 관측: ${out.join(' · ')}` : '페이지에서 읽어낸 제약 없음';
+}
 
-  return `<tr data-form="${fi}" data-field="${xi}"${added ? ' class="wf-added"' : ''}>
-      <td class="wf-name">
+/**
+ * 필드 하나를 카드로 그린다.
+ *
+ * 표(7열)로 만들었더니 입력 패널 폭에서 각 칸이 90px 밑으로 눌리고, 헤더가
+ * 가로 스크롤 밖으로 나가 무슨 칸인지 알 수 없었다. 칸마다 라벨을 붙인
+ * 카드가 좁은 폭에서 훨씬 낫다.
+ */
+function fieldCard(fi, xi, field) {
+  const c = field.constraints || {};
+  const added = field.source === 'user-added';
+  const num = (v) => (v != null ? esc(v) : '');
+
+  return `<div class="wf-field${added ? ' wf-added' : ''}" data-form="${fi}" data-field="${xi}">
+      <div class="wf-field-head">
         <b>${esc(field.label)}</b>
         <span class="tag">${esc(field.type)}</span>
-        ${added ? '<span class="tag tag-num">추가</span>' : ''}
-        ${field.name ? `<span class="mono">${esc(field.name)}</span>` : ''}
-      </td>
-      <td class="wf-req">
-        <label class="wf-check">
-          <input type="checkbox" data-k="required" id="${id}-req"${c.required ? ' checked' : ''} />
+        ${field.name ? `<span class="tag tag-mono">${esc(field.name)}</span>` : ''}
+        ${added ? '<span class="tag tag-num">직접 추가</span>' : ''}
+        <label class="wf-check" title="이 필드를 비우고 제출했을 때 막히는지 확인하는 TC 를 만듭니다">
+          <input type="checkbox" data-k="required"${c.required ? ' checked' : ''} />
           <span>필수</span>
         </label>
-      </td>
-      <td><input class="input wf-num" type="number" min="0" data-k="minLength"
-                 value="${c.minLength != null ? esc(c.minLength) : ''}" placeholder="최소" /></td>
-      <td><input class="input wf-num" type="number" min="0" data-k="maxLength"
-                 value="${c.maxLength != null ? esc(c.maxLength) : ''}" placeholder="최대" /></td>
-      <td><input class="input" type="text" data-k="rule" value="${esc(field.rule || '')}"
-                 placeholder="예: 사내 도메인만 허용" /></td>
-      <td><input class="input" type="text" data-k="testValue" value="${esc(field.testValue || '')}"
-                 placeholder="예: qa@muhayu.com" /></td>
-      <td><input class="input" type="text" data-k="note" value="${esc(field.note || '')}"
-                 placeholder="예: 쿠폰 있을 때만 활성" /></td>
-    </tr>`;
+      </div>
+      <p class="wf-observed">${esc(observedSummary(field))}</p>
+
+      <div class="wf-grid">
+        <label class="wf-cell">
+          <span>최소 길이</span>
+          <input class="input" type="number" min="0" data-k="minLength" value="${num(c.minLength)}" placeholder="없음" />
+        </label>
+        <label class="wf-cell">
+          <span>최대 길이</span>
+          <input class="input" type="number" min="0" data-k="maxLength" value="${num(c.maxLength)}" placeholder="없음" />
+        </label>
+        <label class="wf-cell wf-cell-wide">
+          <span>정상 테스트 값 <em>실제 제출에 쓰입니다</em></span>
+          <input class="input" type="text" data-k="testValue" value="${esc(field.testValue || '')}"
+                 placeholder="예: 자동차 / qa@muhayu.com" />
+        </label>
+        <label class="wf-cell wf-cell-wide">
+          <span>형식 규칙 <em>HTML 에 없는 사내 규칙</em></span>
+          <input class="input" type="text" data-k="rule" value="${esc(field.rule || '')}"
+                 placeholder="예: 사내 도메인만 허용 / 숫자만" />
+        </label>
+        <label class="wf-cell wf-cell-wide">
+          <span>조건 · 비고</span>
+          <input class="input" type="text" data-k="note" value="${esc(field.note || '')}"
+                 placeholder="예: 쿠폰이 있을 때만 활성화" />
+        </label>
+      </div>
+    </div>`;
 }
 
 function formEditor(form, fi) {
-  const rows = form.fields.map((f, xi) => fieldRow(fi, xi, f)).join('');
+  const cards = form.fields.map((f, xi) => fieldCard(fi, xi, f)).join('');
+  const filled = form.fields.filter((f) => f.testValue || f.rule || f.note || f.constraints.required).length;
 
-  return `<section class="wf-form" data-form="${fi}">
-      <div class="wf-head">
+  return `<details class="wf-form" data-form="${fi}" open>
+      <summary class="wf-head">
         <b>${esc(form.name)}</b>
-        <span class="mono">${esc(form.method)} ${esc(form.action)}</span>
+        <span class="tag">${esc(form.method)}</span>
         <span class="tag">${esc(form.fields.length)}개 필드</span>
+        ${filled ? `<span class="tag tag-ok">${filled}개 지정됨</span>` : ''}
         ${form.outsideForm ? '<span class="tag tag-warn">form 태그 밖</span>' : ''}
-      </div>
+      </summary>
 
-      <label class="field-label" for="cond-${fi}">이 폼의 선행 조건 (있으면 조건 충족·미충족 TC 를 함께 만듭니다)</label>
-      <input class="input input-block" type="text" id="cond-${fi}" data-cond="${fi}"
-             value="${esc(form.condition || '')}" placeholder="예: 로그인한 회원만 접근 가능 / 장바구니에 상품이 1개 이상" />
+      <p class="wf-action mono">${esc(form.method)} ${esc(form.action)}</p>
 
-      <div class="sum-table-wrap">
-        <table class="sum-table wf-table">
-          <thead>
-            <tr>
-              <th>필드</th><th>필수</th><th>최소</th><th>최대</th>
-              <th>형식 규칙</th><th>정상 테스트 값</th><th>조건·비고</th>
-            </tr>
-          </thead>
-          <tbody>${rows || '<tr><td colspan="7" class="detail-empty">필드가 없습니다. 아래에서 직접 추가하세요.</td></tr>'}</tbody>
-        </table>
-      </div>
+      <label class="wf-cell wf-cell-wide wf-cond">
+        <span>이 폼의 선행 조건 <em>넣으면 조건 충족·미충족 TC 를 함께 만듭니다</em></span>
+        <input class="input" type="text" data-cond="${fi}" value="${esc(form.condition || '')}"
+               placeholder="예: 로그인한 회원만 접근 가능" />
+      </label>
+
+      ${cards || '<p class="detail-empty">읽어낸 필드가 없습니다. 아래에서 직접 추가하세요.</p>'}
 
       <div class="wf-add" data-add="${fi}">
-        <input class="input" type="text" data-k="label" placeholder="추가할 필드 이름 (예: 쿠폰 코드)" />
+        <input class="input" type="text" data-k="label" placeholder="잡히지 않은 필드 이름 (예: 쿠폰 코드)" />
         <select class="select" data-k="type">
           ${WEB_FIELD_TYPES.map((t) => `<option value="${t}">${t}</option>`).join('')}
         </select>
         <button type="button" class="btn btn-sm" data-add-btn="${fi}">필드 추가</button>
       </div>
-    </section>`;
+    </details>`;
 }
 
 /** 편집기를 그린다. 분석 결과가 없으면 아무것도 하지 않는다. */
@@ -143,7 +172,7 @@ function collectOverrides() {
     const cond = section.querySelector(`[data-cond="${fi}"]`);
     if (cond && cond.value.trim()) entry.condition = cond.value.trim();
 
-    section.querySelectorAll('tbody tr[data-field]').forEach((tr) => {
+    section.querySelectorAll('.wf-field[data-field]').forEach((tr) => {
       const xi = tr.dataset.field;
       const values = {};
       tr.querySelectorAll('[data-k]').forEach((el) => {
