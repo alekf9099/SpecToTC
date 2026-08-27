@@ -103,12 +103,13 @@ function renderSpecSummary() {
       <ul class="sum-list">${li(a.highlights)}</ul>
     </div>`).join(''));
 
-  const aiDisabled = $('#optAI').disabled;
+  // 체크박스 DOM 이 아니라 서버 상태를 본다 — health 응답 전에도 잘못 활성되지 않게
+  const aiBlocked = aiBlockReason();
   const tcCount = (state.testCases || []).length;
   const actions = `<div class="sum-actions">
       <button id="btnExportPdf" class="btn btn-sm btn-primary">전체 문서 PDF 내보내기</button>
       <button id="btnExportHtml" class="btn btn-sm">HTML 파일 저장</button>
-      <button id="btnAiSummary" class="btn btn-sm"${aiDisabled ? ' disabled title="ANTHROPIC_API_KEY 가 설정되지 않았습니다."' : ''}>Claude 서술형 요약</button>
+      <button id="btnAiSummary" class="btn btn-sm"${aiBlocked ? ` disabled title="${esc(aiBlocked)}"` : ''}>Claude 서술형 요약</button>
       <button id="btnCopySummary" class="btn btn-sm btn-ghost">요약 마크다운 복사</button>
     </div>
     <p class="sum-note export-note">내보내는 문서: 문서 요약 · QA 검증 분석서${
@@ -165,6 +166,13 @@ async function copySummaryText() {
 }
 
 async function requestAiSummary() {
+  const blocked = aiBlockReason();
+  if (blocked) {
+    setStatus(`Claude 서술형 요약을 쓸 수 없습니다 — ${blocked}
+규칙 엔진 요약은 위에 이미 표시돼 있습니다.`, 'error');
+    return;
+  }
+
   const specText = $('#specText').value;
   if (!specText.trim()) {
     setStatus('기획서 텍스트를 입력하세요.', 'error');
