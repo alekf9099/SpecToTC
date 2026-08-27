@@ -5,6 +5,8 @@ const state = {
   testCases: [],
   sourceName: null,
   webUrl: null,
+  ai: null,
+  ranEmpty: false,
   browser: null,
   webInventory: null,
   webInventoryOriginal: null,
@@ -80,9 +82,24 @@ function renderTable() {
   const body = $('#tcBody');
 
   if (!rows.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="6">${
-      state.testCases.length ? '필터 조건에 맞는 테스트케이스가 없습니다.' : '좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.'
-    }</td></tr>`;
+    // 세 가지 빈 상태를 구분한다. "아직 안 돌렸다" 와 "돌렸는데 0건" 은
+    // 사용자가 해야 할 일이 완전히 다르다.
+    let message;
+    if (state.testCases.length) {
+      message = '필터 조건에 맞는 테스트케이스가 없습니다.';
+    } else if (state.ranEmpty) {
+      message = [
+        '<b>생성했지만 만들 수 있는 테스트케이스가 없었습니다.</b>',
+        '규칙 엔진은 <b>판정할 수 있는 문장</b>에서만 TC 를 만듭니다 — 조건("~하면 ~한다"),',
+        '수치 기준("8자 이상", "3회까지"), 예외 처리("실패 시 ~"), 상태 전이 같은 문장입니다.',
+        '설명문·배경 설명만 있는 문서에서는 0건이 정상입니다.',
+        '<br>기획서에 판정 기준이 아직 없다면 그 자체가 <b>QA 가 기획에 물어볼 지점</b>입니다 —',
+        '우측 <b>문서 요약</b> 탭의 <b>확인 필요</b> 항목을 그대로 질문 목록으로 쓰세요.',
+      ].join(' ');
+    } else {
+      message = '좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.';
+    }
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">${message}</td></tr>`;
     return;
   }
 
@@ -190,11 +207,20 @@ async function generate() {
     state.specSummary = data.specSummary || null;
     state.aiSummary = null;
     state.expanded.clear();
+    state.ranEmpty = state.testCases.length === 0;
     renderSummary(data);
     renderTable();
     renderSpecSummary();
 
     const lines = [`완료 — TC ${state.testCases.length}건 / 요구사항 ${data.requirements.length}건 (${data.elapsedMs}ms)`];
+
+    // 0건은 실패가 아니지만, 왜 그런지 말해주지 않으면 도구가 고장난 것처럼 보인다.
+    if (!state.testCases.length) {
+      const off = ['#optPass', '#optFail', '#optEdge'].filter((id) => !$(id).checked);
+      lines.push(off.length === 3
+        ? 'Pass · Fail · Edge Case 를 모두 껐습니다. 하나 이상 켜고 다시 생성하세요.'
+        : '판정할 수 있는 문장(조건 · 수치 기준 · 예외 처리)을 찾지 못했습니다. 우측 표의 안내와 문서 요약의 "확인 필요" 항목을 확인하세요.');
+    }
     if (data.ai && data.ai.requested) {
       lines.push(data.ai.error ? `AI 보강: ${data.ai.error}` : `AI 보강: ${data.ai.added}건 추가 (${data.ai.model})`);
     }
@@ -220,7 +246,10 @@ async function exportCsv(opts = {}) {
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
-    triggerDownload(blob, fileNameFromHeader(res) || 'spectotc-tc.csv');
+
+    // 두 CSV 버튼이 같은 파일명을 쓰면 다운로드 폴더에서 구분이 안 된다.
+    const base = (fileNameFromHeader(res) || 'spectotc-tc.csv').replace(/\.csv$/i, '');
+    triggerDownload(blob, `${base}${opts.bom === false ? '-nobom' : '-excel'}.csv`);
   } catch (err) {
     setStatus(`CSV 내보내기 실패: ${err.message}`, 'error');
   }
@@ -463,6 +492,7 @@ function bind() {
     state.testCases = [];
     state.specSummary = null;
     state.aiSummary = null;
+    state.ranEmpty = false;
     state.expanded.clear();
     renderSummary({ summary: {}, areas: [], requirements: [] });
     renderTable();
@@ -552,6 +582,7 @@ async function loadHealth() {
     $('#btnLogout').hidden = !(data.auth && data.auth.required);
 
     const ai = data.ai || {};
+    state.ai = ai;
     const aiBadge = $('#aiBadge');
     aiBadge.textContent = ai.enabled
       ? `AI 보강 사용 가능 · ${ai.model}${ai.tokenRequired ? ' (토큰 필요)' : ''}`
@@ -559,11 +590,42 @@ async function loadHealth() {
     aiBadge.className = 'badge ' + (ai.enabled ? 'badge-ok' : 'badge-muted');
     $('#healthBadge').textContent = `v${data.version}${data.node ? ' · ' + data.node : ''}`;
     $('#healthBadge').className = 'badge badge-ok';
-    if (!ai.enabled) $('#optAI').disabled = true;
+    applyAiGating();
     renderBrowserBadge(data.browser);
   } catch (err) {
     $('#aiBadge').textContent = '서버 연결 실패';
     $('#aiBadge').className = 'badge badge-off';
+  }
+}
+
+/**
+ * Claude 보강이 왜 안 되는지를 한 문장으로. 가능하면 null.
+ *
+ * 서버 상태(state.ai)를 근거로 판단한다. 예전에는 `#optAI` 체크박스의 disabled
+ * 를 읽었는데, 그 값은 health 응답이 온 뒤에야 세팅되므로 응답 전에 요약을 그리면
+ * 버튼이 활성으로 나왔다. 누르면 서버 오류를 만나는 상태였다.
+ */
+function aiBlockReason() {
+  if (!state.ai) return '서버 상태를 아직 확인하지 못했습니다.';
+  if (!state.ai.enabled) return 'Claude 보강이 서버에서 비활성입니다 (ANTHROPIC_API_KEY 미설정).';
+  return null;
+}
+
+/** Claude 관련 컨트롤을 서버 상태에 맞춰 잠근다 */
+function applyAiGating() {
+  const why = aiBlockReason();
+  const opt = $('#optAI');
+  if (opt) {
+    opt.disabled = Boolean(why);
+    if (why) opt.checked = false;
+    const wrap = opt.closest('label');
+    if (wrap) wrap.title = why || `Claude 보강 사용 가능${state.ai.model ? ` (${state.ai.model})` : ''}`;
+  }
+
+  const btn = $('#btnAiSummary'); // 요약 뷰가 그려져 있을 때만 존재
+  if (btn) {
+    btn.disabled = Boolean(why);
+    btn.title = why || 'Claude 로 서술형 요약을 만듭니다.';
   }
 }
 
