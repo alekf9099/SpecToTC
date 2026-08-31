@@ -113,6 +113,85 @@ function itemsToLines(items) {
   return lines;
 }
 
+/* ------------------------------------------------- 줄바꿈된 문장 다시 잇기 */
+
+/** 문장이 여기서 끝났다고 볼 수 있는 끝맺음 */
+const SENTENCE_END = /[.!?;:。！？…"'”’)\]}】]$/;
+/**
+ * 마침표 없이 끝나는 한국어 종결형 — 기획서에서 흔하다.
+ * 흔한 중간 음절(정·시·안·중·료)은 넣지 않는다. "…기능 설정" 처럼 이어져야 할
+ * 줄까지 문장 끝으로 오인해 조각을 남기게 된다.
+ */
+const KOREAN_END = /(한다|된다|이다|합니다|입니다|습니다|다|요|음|함|임|됨|것)$/;
+/** 새 블록의 시작 — 앞 줄에 이어 붙이면 안 된다 */
+const BLOCK_START = /^(#{1,6}\s|[-*•▪◦·]\s|\d+[.)]\s|\(\d+\)|[①-⑳㉠-㉻]|[IVX]+\.\s|\||>|\[|【|【)/;
+/** "항목 :" 형태의 라벨 줄 (표를 텍스트로 뽑으면 자주 나온다) */
+const LABEL_LINE = /^[^\s:：]{1,24}\s*[:：]/;
+
+/**
+ * PDF 는 **시각적 줄**만 알려준다. 한 문장이 두 줄에 걸치면 두 조각이 되고,
+ * 파서는 각 줄을 별개 요구사항으로 읽어 "…기능 설정 (이" 처럼 단어 중간에서
+ * 끊긴 요구사항을 만든다.
+ *
+ * 그래서 **줄이 꽉 찼는데 문장이 안 끝났으면** 다음 줄과 잇는다.
+ * "꽉 찼는지" 는 그 페이지에서 흔한 줄 길이를 기준으로 판단한다 — 일부러 짧게
+ * 끊은 줄(제목·목록·표 셀)은 기준에 못 미쳐 이어붙지 않는다.
+ *
+ * 단순히 "마침표가 없으면 잇는다" 로 하면 표·목록이 한 덩어리로 뭉개진다.
+ */
+/**
+ * 두 조각을 잇는다. 공백을 넣을지가 핵심이다.
+ *
+ * 한국어는 단어 중간에서도 줄이 바뀌므로 "12" + "개월간" 은 붙여야 "12개월간" 이 된다.
+ * 반면 영문은 보통 단어 사이에서 줄이 바뀌므로 공백이 필요하다.
+ */
+function joinWrapped(prev, next) {
+  // 영문 하이픈 분철: "config-" + "uration" → "configuration"
+  if (/[A-Za-z]-$/.test(prev) && /^[a-z]/.test(next)) {
+    return `${prev.slice(0, -1)}${next}`;
+  }
+
+  const end = prev.slice(-1);
+  const start = next[0];
+  const glue = (/[가-힣0-9]/.test(end) && /[가-힣]/.test(start))   // 한글은 아무 데서나 끊긴다
+    || /[([{"'“‘]$/.test(prev)                                     // 여는 괄호 뒤는 붙인다
+    || /^[)\]}.,;:!?]/.test(next);                                  // 닫는 괄호·문장부호 앞도 붙인다
+
+  return `${prev}${glue ? '' : ' '}${next}`.replace(/[ \t]{2,}/g, ' ');
+}
+
+function reflowWrappedLines(lines) {
+  const lengths = lines.map((l) => l.length).filter((n) => n > 0).sort((a, b) => a - b);
+  if (lengths.length < 2) return lines;   // 이을 대상이 없다
+
+  // 본문 줄 길이의 대표값 — 제목처럼 짧은 줄에 휘둘리지 않게 상위 분위수를 쓴다
+  const p80 = lengths[Math.min(lengths.length - 1, Math.floor(lengths.length * 0.8))];
+  const fullWidth = Math.max(24, Math.round(p80 * 0.8));
+
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { out.push(raw); continue; }
+
+    const prev = out.length ? out[out.length - 1] : null;
+    const canContinue = prev
+      && prev.length >= fullWidth          // 앞 줄이 꽉 찼다 = 자동 줄바꿈일 가능성이 높다
+      && !SENTENCE_END.test(prev)
+      && !KOREAN_END.test(prev)
+      && !BLOCK_START.test(prev)
+      && !LABEL_LINE.test(prev)
+      && !BLOCK_START.test(line);          // 이어질 줄이 새 블록을 시작하면 안 된다
+
+    if (canContinue) {
+      out[out.length - 1] = joinWrapped(prev, line);
+    } else {
+      out.push(line);
+    }
+  }
+
+  return out;
+}
+
 
 /** 페이지마다 반복되는 머리글·바닥글, 페이지 번호/인쇄 시각 줄 */
 const CHROME_PATTERNS = [
@@ -214,7 +293,9 @@ async function extractPdf(buffer, options = {}) {
       try {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        pages.push(itemsToLines(content.items).map(normalizeBullets).filter(Boolean));
+        // 줄바꿈으로 끊긴 문장을 먼저 잇고 나서 글머리표를 정규화한다
+        const lines = reflowWrappedLines(itemsToLines(content.items));
+        pages.push(lines.map(normalizeBullets).filter(Boolean));
         page.cleanup();
       } catch (err) {
         // 한 페이지가 실패해도 나머지는 살린다 (도표·이미지가 섞인 페이지에서 발생).
@@ -253,4 +334,7 @@ async function extractPdf(buffer, options = {}) {
   };
 }
 
-module.exports = { extractPdf, itemsToLines, normalizeBullets, stripPageChrome, isChrome, describePdfError, domSupport };
+module.exports = {
+  extractPdf, itemsToLines, reflowWrappedLines, normalizeBullets,
+  stripPageChrome, isChrome, describePdfError, domSupport,
+};

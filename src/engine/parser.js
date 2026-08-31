@@ -24,6 +24,21 @@ function stripMarkers(line) {
     .trim();
 }
 
+/** 서술문 종결 — 제목이 아니라 문장이라는 신호 */
+const SENTENCE_TAIL = /(한다|합니다|된다|입니다|이다|한다\.|했다|이며|하고|하며)\s*$/;
+
+/**
+ * 마크다운 기호 없이 홀로 쓰이는 표준 SRS 절 이름.
+ * PDF·워드 문서는 제목에 서식만 있고 기호가 없어 이 목록이 없으면 못 알아본다.
+ */
+const SRS_SECTION_RE = new RegExp(`^(${[
+  '개요', '요약', '배경', '목적', '목표', '비목표', '목표가 아닌 것', '범위', '대상',
+  '용어', '용어 정의', '제약', '제약사항', '전제', '전제조건', '가정',
+  '요구사항', '기능 요구사항', '비기능 요구사항', '상세 요구사항',
+  '화면 정의', '화면 구성', '정책', '예외 처리', '오류 처리',
+  '일정', '참고', '참고사항', '기타', '기타 고려사항', '변경 이력',
+].join('|')})\\s*$`);
+
 /** 문단 제목(요구사항 영역) 후보인지 판단하고 제목 텍스트를 반환 */
 function detectArea(line) {
   const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
@@ -39,6 +54,20 @@ function detectArea(line) {
 
   const colon = line.match(/^\s*([^\s].{1,40})\s*[:：]\s*$/);
   if (colon) return { title: colon[1].trim(), depth: 4 };
+
+  // PDF·워드에서 뽑은 텍스트에는 마크다운 기호가 없다. 사내 SRS 에서 흔한
+  // "개요 (Introduction)" 같은 국·영문 병기 제목을 제목으로 인정한다.
+  // 이게 없으면 문서 전체가 한 영역으로 뭉쳐 영역 필터와 검증 분석서가 무의미해진다.
+  const bilingual = line.match(/^\s*([^\s][^()]{0,38})\s*\(\s*([A-Za-z][A-Za-z0-9 ,/&'-]{1,38})\s*\)\s*$/);
+  if (bilingual && !SENTENCE_TAIL.test(bilingual[1])) {
+    return { title: bilingual[1].trim(), depth: 2 };
+  }
+
+  // 기호 없이 홀로 선 표준 절 이름 (개요 / 목표 / 배경 …)
+  const plain = line.trim();
+  if (plain.length <= 30 && SRS_SECTION_RE.test(plain)) {
+    return { title: plain, depth: 2 };
+  }
 
   return null;
 }
