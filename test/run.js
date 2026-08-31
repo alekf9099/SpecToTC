@@ -7,7 +7,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseDocument, extractConstraints, splitConditionAction, extractRetryCount } = require('../src/engine/parser');
+const {
+  parseDocument, extractConstraints, splitConditionAction, extractRetryCount, detectArea,
+} = require('../src/engine/parser');
 const { generateFromSpec } = require('../src/engine');
 const { toCsv } = require('../src/csv');
 const { diffSpecs } = require('../src/diff');
@@ -1110,6 +1112,121 @@ test('applyOverrides — 조건을 여러 번 다시 반영해도 QA 가 추가�
 
   // 추가 필드는 TC 에도 나타난다
   assert.match(JSON.stringify(buildWebTestCases(current)), /쿠폰 코드/);
+});
+/* ---------------------------------------- PDF 줄바꿈 문장 다시 잇기 */
+
+const { reflowWrappedLines } = require('../src/extract/pdf');
+
+test('PDF — 줄바꿈으로 끊긴 문장을 다시 잇는다', () => {
+  // PDF 는 시각적 줄만 알려주므로 한 문장이 두 줄에 걸치면 두 조각이 된다.
+  // 그대로 두면 파서가 각 조각을 별개 요구사항으로 읽어 단어 중간에서 끊긴다.
+  const out = reflowWrappedLines([
+    '교차진단 > 검사결과 다운로드 비밀번호 on/off 벌크/개별 다운로드 시 비밀번호 기능 설정 (이',
+    '때 비밀번호는 생년월일 6자리를 기본값으로 사용한다.',
+    '최고운, HR 서비스 개인정보 데이터 파기 정책, S/W 서',
+    '비스 이용약관에 따라 처리한다.',
+    '개인정보 보유·이용기간 : 결과 제공일로부터 12',
+    '개월간 보관 후 지체 없이 파기한다.',
+  ]);
+
+  assert.equal(out.length, 3, '세 문장으로 합쳐져야 한다');
+  // 한글은 단어 중간에서 끊기므로 공백 없이 붙여야 한다
+  assert.ok(out[0].includes('기능 설정 (이때 비밀번호는'), out[0]);
+  assert.ok(out[1].includes('S/W 서비스 이용약관'), out[1]);
+  assert.ok(out[2].includes('제공일로부터 12개월간'), out[2]);
+  out.forEach((line) => assert.ok(!/ 개월| 비스| 때 /.test(line), `공백이 잘못 들어감: ${line}`));
+});
+
+test('PDF — 제목·목록·짧은 줄은 합치지 않는다', () => {
+  // 일부러 짧게 끊은 줄까지 이어붙이면 문서 구조가 뭉개진다.
+  const lines = [
+    '기획서 본문이 여기서 충분히 길게 이어지고 있는 문장입니다 그리고',
+    '## 목표 (Goals)',
+    '- 프리즘워크에 몬스터 x 역량검사 교차진단 제품 추가',
+    '- 몬스터브릿지에 몬스터 x 역량검사 교차진단 제품 개발',
+    '1. 첫 번째 단계를 수행한다',
+    '2. 두 번째 단계를 수행한다',
+  ];
+  assert.deepEqual(reflowWrappedLines(lines), lines, '구조를 가진 줄은 그대로 남아야 한다');
+});
+
+test('PDF — 영문은 공백을 넣고 하이픈 분철은 합친다', () => {
+  const out = reflowWrappedLines([
+    'The system must validate the user configuration before it applies any con-',
+    'figuration changes to the running deployment environment.',
+    'Short line.',
+    'Another short one.',
+  ]);
+  assert.equal(out.length, 3);
+  assert.match(out[0], /applies any configuration changes/);
+  assert.ok(!/con- figuration|con-figuration/.test(out[0]), '하이픈이 남으면 안 된다');
+});
+
+test('PDF — 잘린 요구사항이 온전한 문장으로 추출·파싱된다', async () => {
+  // 실제 PDF 추출 → 파싱까지 이어서 확인 (조각난 요구사항이 사라져야 한다)
+  const pdf = makePdf([
+    'The password must be at least 8 characters and no more than 20 char-',
+    'acters long when the user signs up on the registration page.',
+    'If the payment fails, the order is not confirmed.',
+  ]);
+
+  const { text } = await extractText(pdf, 'wrapped.pdf');
+  assert.match(text, /20 characters long when the user signs up/);
+  assert.ok(!text.includes('char-'), '하이픈 분철이 남으면 안 된다');
+
+  // 파서가 조각이 아니라 온전한 요구사항으로 읽는다
+  const { requirements } = generateFromSpec(text);
+  const fragment = requirements.find((r) => /char-$/.test(r.text) || /^acters/.test(r.text));
+  assert.ok(!fragment, `조각난 요구사항이 남았다: ${fragment && fragment.text}`);
+});
+test('파서 — 기호 없는 SRS 제목을 영역으로 인식한다', () => {
+  // PDF·워드에서 뽑은 텍스트에는 마크다운 기호가 없다. 제목을 못 알아보면
+  // 문서 전체가 한 영역으로 뭉쳐 영역 필터와 검증 분석서가 무의미해진다.
+  const headings = [
+    ['개요 (Introduction)', '개요'],
+    ['요약 (Summary)', '요약'],
+    ['목표가 아닌 것 (Non-Goals)', '목표가 아닌 것'],
+    ['기타 고려사항 (Other Considerations)', '기타 고려사항'],
+    ['개요', '개요'],
+    ['목표', '목표'],
+  ];
+  headings.forEach(([line, title]) => {
+    const area = detectArea(line);
+    assert.ok(area, `제목으로 인식하지 못함: ${line}`);
+    assert.equal(area.title, title);
+  });
+
+  // 본문 문장을 제목으로 오인하면 요구사항이 통째로 사라진다
+  const body = [
+    '비밀번호는 8자 이상으로 입력한다',
+    '결제 승인이 실패하면 주문을 확정하지 않는다.',
+    '사용자는 로그인 후 마이페이지(My Page)로 이동한다',
+    '프리즘워크에 몬스터 x 역량검사 교차진단 제품 추가',
+  ];
+  body.forEach((line) => assert.equal(detectArea(line), null, `본문을 제목으로 오인함: ${line}`));
+});
+
+test('PDF 문서 전체 흐름 — 줄바꿈·제목이 함께 처리된다', () => {
+  const lines = [
+    '개요 (Introduction)',
+    '교차진단 서비스를 개발하고 이를 사내 제품에 도입한다.',
+    '요약 (Summary)',
+    '검사결과 다운로드 시 비밀번호 on/off 기능을 설정할 수 있으며 기본값은 생년월일 6자리로 (이',
+    '때 비밀번호를 변경하면 즉시 반영한다.',
+    '목표 (Goals)',
+    '알림 발송이 실패하면 최대 3회까지 재시도한다.',
+  ];
+
+  const text = reflowWrappedLines(lines).join(String.fromCharCode(10));
+  const { requirements } = generateFromSpec(text);
+
+  // 조각난 요구사항이 없어야 한다
+  const cut = requirements.find((r) => r.text.trim().endsWith('(이'));
+  assert.ok(!cut, `단어 중간에서 끊긴 요구사항이 남았다: ${cut && cut.text}`);
+
+  // 제목이 영역으로 잡혀 한 덩어리가 아니어야 한다
+  const areas = [...new Set(requirements.map((r) => r.area))];
+  assert.ok(areas.length >= 2, `영역이 나뉘지 않았다: ${areas.join(', ')}`);
 });
 /* ---------------------------------------------------------------- HTTP */
 
