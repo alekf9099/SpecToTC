@@ -177,6 +177,25 @@ function reportSummarySection(s, ai) {
       </div>`).join('')
     : '<p class="empty">모호 표현·누락 항목이 발견되지 않았습니다.</p>';
 
+  // 요청 확인 항목 — 인쇄해서 기획·개발과 함께 보는 용도라 표로 낸다
+  const q = s.questions;
+  const questions = q && q.groups.length
+    ? `<p class="note">테스트 착수 전 확인 ${q.high}건 포함 총 ${q.total}건 · 화면·연동 비중 ${q.frontendRatio}%</p>
+       ${q.groups.map((g) => `
+         <h4>${esc(g.label)} <span class="note">${esc(g.hint)}</span></h4>
+         <table>
+           <thead><tr><th style="width:46px">우선</th><th style="width:44%">확인 요청</th><th>왜 필요한가</th><th style="width:120px">근거</th></tr></thead>
+           <tbody>${g.items.map((item) => `<tr>
+             <td>${esc(item.priority)}</td>
+             <td>${esc(item.question)}</td>
+             <td class="note">${esc(item.why)}</td>
+             <td class="note">${item.basis.kind === 'requirement'
+    ? `${esc(item.basis.id)}${item.basis.line != null ? ` (L${item.basis.line})` : ''}`
+    : '문서에 언급 없음'}</td>
+           </tr>`).join('')}</tbody>
+         </table>`).join('')}`
+    : '<p class="empty">문서에서 유발된 확인 항목이 없습니다.</p>';
+
   const byArea = (s.byArea || []).length
     ? `<table>
         <thead><tr><th style="width:150px">영역</th><th style="width:52px">건수</th><th style="width:180px">주요 관점</th><th>대표 문장</th></tr></thead>
@@ -197,7 +216,8 @@ function reportSummarySection(s, ai) {
     ${aiPart}
     <h3>핵심 요구사항</h3>${keyPoints}
     <h3>수치 기준 <span class="note">검증 시 그대로 사용</span></h3>${numeric}
-    <h3>확인 필요 <span class="note">기획 문의 목록</span></h3>${risks}
+    <h3>확인 필요 <span class="note">문서의 모호·누락</span></h3>${risks}
+    <h3>요청 확인 항목 <span class="note">기획·개발 확인 요청 — 화면·연동 중심</span></h3>${questions}
     ${byArea ? `<h3>영역별 요점</h3>${byArea}` : ''}
   `;
 }

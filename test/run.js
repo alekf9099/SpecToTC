@@ -1228,6 +1228,95 @@ test('PDF 문서 전체 흐름 — 줄바꿈·제목이 함께 처리된다', ()
   const areas = [...new Set(requirements.map((r) => r.area))];
   assert.ok(areas.length >= 2, `영역이 나뉘지 않았다: ${areas.join(', ')}`);
 });
+/* ----------------------------------------------- 요청 확인 항목 */
+
+const { buildQuestions, questionsToMarkdown } = require('../src/questions');
+
+test('요청 확인 항목 — 문서가 유발한 질문만 나오고 근거가 붙는다', () => {
+  const spec = `# 결제
+결제 승인이 실패하면 주문을 확정하지 않고 실패 사유를 안내한다.`;
+  const { requirements } = parseDocument(spec);
+  const q = buildQuestions(requirements, spec);
+  const all = q.groups.flatMap((g) => g.items);
+
+  // 결제를 언급했으니 PG 샌드박스를 물어야 한다
+  const sandbox = all.find((x) => x.question.includes('샌드박스'));
+  assert.ok(sandbox, '결제 문서인데 샌드박스 질문이 없다');
+  assert.equal(sandbox.priority, 'High');
+  assert.equal(sandbox.basis.kind, 'requirement');
+  assert.ok(sandbox.basis.id, '근거 요구사항 ID 가 있어야 한다');
+  assert.ok(sandbox.why && sandbox.why.length > 10, '왜 필요한지가 있어야 한다');
+
+  // 언급 없는 주제는 묻지 않는다 (파일 업로드 얘기가 없으면 확장자 질문도 없어야)
+  assert.ok(!all.some((x) => x.question.includes('확장자')), '언급 없는 주제를 물었다');
+});
+
+test('요청 확인 항목 — 이미 답이 문서에 있으면 묻지 않는다', () => {
+  const withAnswer = [
+    '# 목록',
+    '검색 결과가 없으면 빈 화면에 안내 문구를 노출한다.',
+    '목록은 20건씩 페이지네이션 한다.',
+  ].join(String.fromCharCode(10));
+  const q = buildQuestions(parseDocument(withAnswer).requirements, withAnswer);
+  const all = q.groups.flatMap((g) => g.items);
+
+  assert.ok(!all.some((x) => x.question.includes('0건일 때')), '빈 화면이 이미 적혀 있는데 물었다');
+  assert.ok(!all.some((x) => x.question.includes('페이지 방식')), '페이지네이션이 이미 적혀 있는데 물었다');
+});
+
+test('요청 확인 항목 — 문서에 없는 검증 환경은 부재를 근거로 묻는다', () => {
+  const spec = ['# 로그인', '비밀번호는 8자 이상으로 입력한다.'].join(String.fromCharCode(10));
+  const q = buildQuestions(parseDocument(spec).requirements, spec);
+  const env = q.groups.find((g) => g.key === 'env');
+
+  assert.ok(env, '검증 환경 질문 묶음이 없다');
+  const urlQ = env.items.find((x) => x.question.includes('환경 주소'));
+  assert.ok(urlQ, '검증 URL 을 묻지 않았다');
+  assert.equal(urlQ.basis.kind, 'absent');
+  assert.ok(env.items.some((x) => x.question.includes('테스트 계정')));
+
+  // 주소가 문서에 있으면 그 질문은 빠진다
+  const withUrl = [spec, '검증 환경: https://staging.example.com'].join(String.fromCharCode(10));
+  const q2 = buildQuestions(parseDocument(withUrl).requirements, withUrl);
+  const env2 = q2.groups.find((g) => g.key === 'env') || { items: [] };
+  assert.ok(!env2.items.some((x) => x.question.includes('환경 주소')), '주소가 적혀 있는데 물었다');
+});
+
+test('요청 확인 항목 — 화면·연동 비중이 백엔드보다 높다', () => {
+  // 프런트·연동을 더 보는 것이 이 기능의 목적이다
+  const q = buildQuestions(parseDocument(SAMPLE).requirements, SAMPLE);
+
+  assert.ok(q.total >= 10, `질문이 너무 적다: ${q.total}`);
+  assert.ok(q.high >= 3, `착수 전 필수 질문이 너무 적다: ${q.high}`);
+  assert.ok(q.frontendRatio >= 60, `화면·연동 비중이 낮다: ${q.frontendRatio}%`);
+
+  // 묶음은 화면 → … → 환경 순서 (QA 가 막히는 순서)
+  const order = q.groups.map((g) => g.key);
+  const screenAt = order.indexOf('screen');
+  const envAt = order.indexOf('env');
+  if (screenAt >= 0 && envAt >= 0) assert.ok(screenAt < envAt, '화면 질문이 환경 질문보다 앞에 와야 한다');
+});
+
+test('요청 확인 항목 — 마크다운으로 그대로 전달할 수 있다', () => {
+  const md = questionsToMarkdown(buildQuestions(parseDocument(SAMPLE).requirements, SAMPLE));
+
+  assert.match(md, /## 요청 확인 항목/);
+  assert.match(md, /### /, '묶음별 제목이 있어야 한다');
+  assert.match(md, /왜 필요한가:/);
+  assert.match(md, /근거:/);
+  assert.ok(!md.includes('undefined'), 'undefined 가 새어 나왔다');
+});
+
+test('요청 확인 항목 — 요약 응답에 포함된다', () => withServer(async (base) => {
+  const res = await post(base, '/api/summarize', { specText: SAMPLE });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+
+  assert.ok(data.summary.questions, '요약에 questions 가 없다');
+  assert.ok(data.summary.questions.total > 0);
+  assert.ok(Array.isArray(data.summary.questions.groups));
+  assert.equal(typeof data.summary.questions.frontendRatio, 'number');
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {
