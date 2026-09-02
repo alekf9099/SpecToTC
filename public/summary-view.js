@@ -94,6 +94,43 @@ function renderSpecSummary() {
         </li>`).join('')}</ul>`
     : '<p class="detail-empty">모호 표현·누락 항목이 발견되지 않았습니다.</p>');
 
+  /* ------------------------------------------------------ 요청 확인 항목 */
+  const q = s.questions;
+  const askCard = card(
+    `요청 확인 항목 <span class="sum-sub">${q && q.total
+      ? `기획·개발에 물어볼 것 · 착수 전 필수 ${q.high}건 · 화면·연동 비중 ${q.frontendRatio}%`
+      : '기획·개발에 물어볼 것'}</span>`,
+    q && q.groups.length
+      ? `<p class="sum-note ask-intro">
+           문서가 틀린 곳(위 <b>확인 필요</b>)과 달리, <b>문서가 맞아도 이게 없으면 테스트를 못 하는 것</b>들입니다.
+           백엔드 로직은 대개 문서에 적히지만 화면 상태·에러 문구·연동 실패 화면은 거의 안 적힙니다.
+         </p>
+         ${q.groups.map((g) => `
+           <div class="ask-group">
+             <div class="ask-group-head">
+               <b>${esc(g.label)}</b>
+               <span class="sum-count">${g.items.length}건</span>
+               <em>${esc(g.hint)}</em>
+             </div>
+             <ol class="ask-list">${g.items.map((item) => `
+               <li>
+                 <div class="ask-q">
+                   <span class="pill pill-${String(item.priority).toLowerCase()}">${esc(item.priority)}</span>
+                   <b>${esc(item.question)}</b>
+                 </div>
+                 <p class="sum-note">왜 필요한가 — ${esc(item.why)}</p>
+                 <p class="ask-basis">${item.basis.kind === 'requirement'
+    ? `근거: <span class="mono">${esc(item.basis.id)}</span>${item.basis.line != null
+      ? ` <span class="mono">L${item.basis.line}</span>` : ''} ${esc(item.basis.text)}`
+    : `근거: <span class="tag tag-warn">문서에 언급 없음</span>`}</p>
+               </li>`).join('')}</ol>
+           </div>`).join('')}
+         <div class="actions ask-actions">
+           <button id="btnCopyQuestions" class="btn btn-sm">요청 확인 항목 복사</button>
+         </div>`
+      : '<p class="detail-empty">문서에서 유발된 확인 항목이 없습니다.</p>',
+  );
+
   /* -------------------------------------------------------- 영역별 요점 */
   const areaCard = card('영역별 요점', (s.byArea || []).map((a) => `
     <div class="sum-area">
@@ -118,9 +155,10 @@ function renderSpecSummary() {
   // 사내 표준 6개 섹션 검증 분석서를 요약 아래에 붙인다.
   const qaPlan = renderQaPlan(s.qaPlan, ai);
 
-  box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + areaCard + qaPlan;
+  box.innerHTML = actions + overviewCard + aiCard + keyCard + numCard + riskCard + askCard + areaCard + qaPlan;
   $('#btnAiSummary').addEventListener('click', requestAiSummary);
   $('#btnCopySummary').addEventListener('click', copySummaryText);
+  if ($('#btnCopyQuestions')) $('#btnCopyQuestions').addEventListener('click', copyQuestions);
   $('#btnExportPdf').addEventListener('click', () => exportReportPdf());
   $('#btnExportHtml').addEventListener('click', () => downloadReportHtml());
   if ($('#btnCopyQaPlan')) $('#btnCopyQaPlan').addEventListener('click', copyQaPlan);
@@ -153,7 +191,49 @@ function summaryToMarkdown() {
   out.push('', '## 확인 필요');
   (s.risks || []).forEach((r) => out.push(`- [${r.type}] ${r.message} (${r.count}건) → ${r.question}`));
 
+  out.push('', questionsToMarkdown(s.questions));
+
   return out.join('\n');
+}
+
+/**
+ * 요청 확인 항목만 따로 마크다운으로.
+ * 기획·개발에게 그대로 보내는 용도라 요약 전체와 분리해 둔다.
+ */
+function questionsToMarkdown(q) {
+  if (!q || !q.groups.length) return '';
+  const out = [
+    '## 요청 확인 항목 (기획·개발 확인 요청)',
+    '',
+    `테스트 착수 전 확인 ${q.high}건 포함, 총 ${q.total}건. 화면·연동 비중 ${q.frontendRatio}%.`,
+    '',
+  ];
+  q.groups.forEach((g) => {
+    out.push(`### ${g.label}`, '');
+    g.items.forEach((item) => {
+      out.push(`- **[${item.priority}] ${item.question}**`);
+      out.push(`  - 왜 필요한가: ${item.why}`);
+      out.push(`  - 근거: ${item.basis.kind === 'requirement'
+        ? `${item.basis.id}${item.basis.line != null ? ` (L${item.basis.line})` : ''} ${item.basis.text}`
+        : '문서에 언급 없음'}`);
+    });
+    out.push('');
+  });
+  return out.join('\n');
+}
+
+async function copyQuestions() {
+  const md = questionsToMarkdown(state.specSummary && state.specSummary.questions);
+  if (!md) {
+    setStatus('복사할 요청 확인 항목이 없습니다.', 'error');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(md);
+    setStatus('요청 확인 항목을 복사했습니다. 기획·개발에 그대로 전달하세요.', 'ok');
+  } catch (err) {
+    setStatus(`복사 실패: ${err.message}`, 'error');
+  }
 }
 
 async function copySummaryText() {

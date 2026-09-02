@@ -12,6 +12,7 @@
 const { WEIGHTS, LABELS, truncate, clean, formatCriterion } = require('./engine/generator');
 const { parseDocument } = require('./engine/parser');
 const { buildQaPlan } = require('./qaPlan');
+const { buildQuestions } = require('./questions');
 
 const OP_TEXT = { '>=': '이상', '<=': '이하', '>': '초과', '<': '미만' };
 
@@ -212,7 +213,10 @@ function summarizeSpec(input, options = {}) {
     ? `${overview.areas}개 영역 / 요구사항 ${overview.requirements}건 — 조건 분기 ${overview.conditional}건, 수치 기준 ${numericRules.length}건, 확인 필요 ${risks.reduce((n, r) => n + r.count, 0)}건(${risks.length}종)`
     : '요구사항으로 인식된 문장이 없습니다. 문서가 이미지·표 위주인지 확인해 주세요.';
 
-  const result = { headline, overview, keyPoints, byArea, numericRules, risks };
+  // 요청 확인 항목 — 문서 결함(risks)이 아니라 "테스트를 시작하려면 필요한 답"
+  const questions = buildQuestions(requirements, rawText);
+
+  const result = { headline, overview, keyPoints, byArea, numericRules, risks, questions };
 
   // QA 검증 분석서 — 사내 표준 6개 고정 섹션
   if (options.qaPlan !== false) {
@@ -232,4 +236,6 @@ function summarizeSpec(input, options = {}) {
   return result;
 }
 
-module.exports = { summarizeSpec, requirementScore, collectRisks, collectNumericRules, VAGUE_PATTERNS };
+module.exports = {
+  summarizeSpec, requirementScore, collectRisks, collectNumericRules, VAGUE_PATTERNS,
+};
