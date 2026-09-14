@@ -513,6 +513,7 @@ function bind() {
   });
 
   $('#btnAnalyzeUrl').addEventListener('click', analyzeUrl);
+  $('#btnAnalyzeSite').addEventListener('click', analyzeSite);
   $('#siteUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') analyzeUrl(); });
   $('#btnUrlSample').addEventListener('click', () => {
     $('#siteUrl').value = 'https://www.naver.com';

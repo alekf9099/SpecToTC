@@ -1421,6 +1421,155 @@ test('제목 — 단어 중간에서 끊긴 문구가 없다', () => {
     assert.ok(!/ → 도한다|재 →| 없다 시 /.test(tc.title), `제목이 깨졌다: ${tc.title}`);
   });
 });
+/* ------------------------------------------- 사이트 탐색 (로그인 · 딥링크) */
+
+const { buildSiteTestCases } = require('../src/web/siteTestCases');
+const { crawlSite, pageKey, screenName, DANGEROUS } = require('../src/web/crawl');
+
+/** 브라우저 없이 탐색 결과 모양만 만든 것 */
+function fakeCrawl(over = {}) {
+  const page = (path, name, html) => ({
+    url: 'https://shop.example.com' + path,
+    path,
+    title: name,
+    name,
+    depth: path === '/' ? 0 : 1,
+    viaLabel: path === '/' ? null : name,
+    inventory: buildInventory(html, 'https://shop.example.com' + path),
+    behindLogin: true,
+    authSignals: {},
+  });
+  return {
+    start: 'https://shop.example.com/',
+    origin: 'https://shop.example.com',
+    login: { attempted: true, ok: true, loginUrl: 'https://shop.example.com/login', movedTo: 'https://shop.example.com/mypage' },
+    pages: [
+      page('/', '마이페이지', '<html><body><nav><a href=/orders>주문내역</a></nav><h1>마이페이지</h1></body></html>'),
+      page('/orders', '주문내역', '<html><body><form action=/orders method=get><input type=search name=q><button>검색</button></form></body></html>'),
+      page('/coupons', '쿠폰', '<html><body><form action=/coupons method=post><input name=code required maxlength=12><button>등록</button></form></body></html>'),
+    ],
+    notVisited: [{ url: 'https://shop.example.com/settings', label: '설정' }],
+    skippedLinks: [{ url: 'https://shop.example.com/logout', label: '로그아웃', reason: '되돌릴 수 없는 동작으로 보여 건너뜀' }],
+    limits: { maxPages: 10, maxDepth: 2 },
+    observations: { consoleErrors: [], pageErrors: [], blockedRequests: 0 },
+    ...over,
+  };
+}
+
+test('사이트 탐색 — 화면마다 세부 TC 가 나온다 (링크 한 줄로 뭉치지 않는다)', () => {
+  const tcs = buildSiteTestCases(fakeCrawl());
+
+  // 한 장 분석이었다면 링크는 "주요 내부 링크 이동" TC 한 줄로 끝났다
+  const areas = [...new Set(tcs.map((t) => t.area))];
+  assert.ok(areas.includes('1. 마이페이지'), areas.join(' / '));
+  assert.ok(areas.includes('2. 주문내역'), areas.join(' / '));
+  assert.ok(areas.includes('3. 쿠폰'), areas.join(' / '));
+
+  // 화면 안의 폼이 실제로 TC 가 됐는지
+  const orders = tcs.filter((t) => t.area === '2. 주문내역');
+  assert.ok(orders.some((t) => t.title.includes('검색 폼')), '주문내역의 검색 폼 TC 가 없다');
+  const coupons = tcs.filter((t) => t.area === '3. 쿠폰');
+  assert.ok(coupons.some((t) => t.title.includes('경계값')), '쿠폰 입력 제약 경계값 TC 가 없다');
+
+  // 근거에 어느 화면인지 남는다
+  assert.ok(orders.every((t) => String(t.requirement.text).includes('/orders')), '근거에 경로가 없다');
+});
+
+test('사이트 탐색 — 로그인 · 딥링크 TC 를 만든다', () => {
+  const tcs = buildSiteTestCases(fakeCrawl());
+
+  const login = tcs.filter((t) => t.area === '로그인');
+  assert.ok(login.length >= 3, '로그인 TC 가 부족하다');
+  assert.ok(login.some((t) => t.tags.includes('login') && t.type === 'Fail'), '잘못된 자격 증명 TC 가 없다');
+
+  const deep = tcs.filter((t) => t.area === '딥링크');
+  assert.ok(deep.length >= 3, '딥링크 TC 가 부족하다');
+  assert.ok(deep.some((t) => t.title.includes('비로그인')), '비로그인 직접 접근 TC 가 없다');
+  assert.ok(deep.some((t) => t.tags.includes('deep-link')));
+});
+
+test('사이트 탐색 — 자격 증명이 TC 에 절대 들어가지 않는다', () => {
+  // 비밀번호가 TC 에 섞이면 CSV·PDF 로 그대로 새어 나간다
+  const dump = JSON.stringify(buildSiteTestCases(fakeCrawl()));
+  ['qa-account', 'S3cretpass', 'password123'].forEach((secret) => {
+    assert.ok(!dump.includes(secret), `자격 증명이 TC 에 새어 나왔다: ${secret}`);
+  });
+  assert.match(dump, /전달받은 테스트 계정/, '자격 증명 자리는 자리표시자로 적어야 한다');
+});
+
+test('사이트 탐색 — 화면 공통 TC 가 화면 수만큼 반복되지 않는다', () => {
+  const tcs = buildSiteTestCases(fakeCrawl());
+  const titles = tcs.map((t) => t.title);
+
+  const dup = titles.filter((t, i) => titles.indexOf(t) !== i);
+  assert.equal(dup.length, 0, `중복 제목: ${[...new Set(dup)].slice(0, 3).join(' / ')}`);
+
+  // 반응형·접근성 같은 사이트 공통 항목은 한 번만
+  ['반응형', '접근성', '예외 처리'].forEach((kind) => {
+    const n = titles.filter((t) => t.includes(kind)).length;
+    assert.ok(n <= 1, `${kind} TC 가 ${n}건 — 화면마다 반복됐다`);
+  });
+});
+
+test('사이트 탐색 — 되돌릴 수 없는 링크는 수동 확인으로 남긴다', () => {
+  const tcs = buildSiteTestCases(fakeCrawl());
+  const manual = tcs.find((t) => t.tags.includes('manual-check') && t.tags.includes('destructive'));
+
+  assert.ok(manual, '건너뛴 링크에 대한 수동 확인 TC 가 없다');
+  assert.equal(manual.priority, 'High');
+  assert.match(manual.steps.join(' '), /로그아웃/);
+
+  // 위험 링크 판별 자체도 확인
+  ['/logout', '/user/delete', '/account/withdraw', '탈퇴하기', '주문 삭제'].forEach((s) => {
+    assert.ok(DANGEROUS.test(s), `위험 링크로 걸러지지 않았다: ${s}`);
+  });
+  ['/orders', '/coupons', '주문내역', '상품 목록'].forEach((s) => {
+    assert.ok(!DANGEROUS.test(s), `정상 링크가 위험으로 걸러졌다: ${s}`);
+  });
+});
+
+test('사이트 탐색 — 같은 화면을 두 번 보지 않는다', () => {
+  // 쿼리·프래그먼트만 다른 주소는 같은 화면으로 본다
+  assert.equal(pageKey('https://a.com/orders?page=1'), pageKey('https://a.com/orders?page=2'));
+  assert.equal(pageKey('https://a.com/orders/'), pageKey('https://a.com/orders#top'));
+  assert.notEqual(pageKey('https://a.com/orders'), pageKey('https://a.com/coupons'));
+
+  assert.equal(screenName('주문내역', 'https://a.com/orders'), '주문내역');
+  assert.equal(screenName('', 'https://a.com/orders'), '/orders');
+});
+
+test('사이트 탐색 — 내부망 주소는 브라우저를 띄우기 전에 막는다', async () => {
+  for (const bad of ['http://localhost/', 'http://127.0.0.1/admin', 'file:///etc/passwd']) {
+    await assert.rejects(() => crawlSite(bad, {}), /공개된 도메인|http\/https|사설|내부망/);
+  }
+});
+
+test('사이트 탐색 — 로그인은 실행 검증과 같은 게이트를 통과해야 한다', async () => {
+  // 로그인은 대상 사이트에 실제 자격 증명을 보내는 행위다
+  await withEnv({}, async () => {
+    await assert.rejects(
+      () => crawlSite('https://example.com', { login: { username: 'a', password: 'b' } }),
+      /SPECTOTC_LIVE_SUBMIT/,
+    );
+  });
+
+  await withEnv({ SPECTOTC_LIVE_SUBMIT: '1' }, async () => {
+    await assert.rejects(
+      () => crawlSite('https://example.com', { login: { username: 'a', password: 'b' } }),
+      /허용 호스트가 없습니다/,
+    );
+  });
+});
+
+test('POST /api/analyze-site — 브라우저가 꺼져 있으면 이유를 알려준다', () => withServer(async (base) => {
+  const res = await post(base, '/api/analyze-site', { url: 'https://example.com' });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /SPECTOTC_BROWSER/);
+
+  const empty = await post(base, '/api/analyze-site', {});
+  assert.equal(empty.status, 400);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_BROWSER: undefined }));
+
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {
