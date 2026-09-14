@@ -716,7 +716,10 @@ test('인벤토리에서 TC 를 만든다 (기획서 TC 와 같은 구조)', () 
   const boundary = tcs.find((t) => t.tags.includes('boundary') && /비밀번호/.test(t.title));
   assert.ok(boundary, '비밀번호 경계 TC 없음');
   const joined = boundary.expected.join(' ');
-  assert.ok(/20 → 허용/.test(joined) && /21 → 거부/.test(joined), joined);
+  assert.ok(/20 입력 시 허용/.test(joined) && /21 입력 시 거부/.test(joined), joined);
+  // 기대 결과의 주어는 시스템, 수행 단계의 주어는 QA
+  assert.ok(boundary.expected.every((e) => e.startsWith('시스템은')), boundary.expected.join(' | '));
+  assert.ok(boundary.steps.every((s) => s.includes('QA 는')), boundary.steps.join(' | '));
 });
 
 test('화면 분석 요약은 기획서 요약과 같은 형태를 채운다', () => {
@@ -901,8 +904,9 @@ test('관측 결과 → TC — 기대 결과에 실측값이 들어가고 판단
   // 기획서가 없으면 "옳은지" 는 알 수 없다. 그 한계를 반드시 문구로 남긴다.
   assert.match(expected, /QA 가 판단/);
 
-  // 수행 단계에 실제로 넣은 값이 있어야 재현할 수 있다
-  assert.match(tc.steps.join(' '), /검색어 = 자동차/);
+  // 수행 단계에 실제로 넣은 값이 있어야 재현할 수 있다 (주어·목적어를 갖춘 문장으로)
+  assert.match(tc.steps.join(' '), /검색어 에 자동차 를 입력한다/);
+  assert.ok(tc.steps.every((s) => s.includes('QA 는')), tc.steps.join(' | '));
 });
 
 test('관측 결과 → TC — 오류가 관측되면 Fail 로 분류하고 별도 TC 를 만든다', () => {
@@ -1636,6 +1640,93 @@ test('CSV — 유형이 수행 결과처럼 보이지 않는다', () => {
   // 결과·수행일·담당자·비고는 비어 있어야 한다 (QA 가 채운다)
   assert.equal(cells[6], '', '수행 결과가 미리 채워져 있다');
   assert.equal(cells[7], '', '수행일이 미리 채워져 있다');
+});
+
+/* ------------------------------- 모든 생성 경로가 같은 문구 규칙을 따르는지 */
+
+test('모든 생성 경로 — 수행 단계의 주어는 QA, 생략 부호 없음', () => {
+  // 문서 경로만 고치고 웹 경로를 빠뜨리면, 같은 CSV 안에서 문장 규칙이 달라진다.
+  const pageHtml = [
+    '<html lang="ko"><head><title>회원가입</title></head><body>',
+    '<form action="/signup" method="post">',
+    '<input name="email" type="email" required maxlength="50">',
+    '<input name="pw" type="password" required minlength="8"><button>가입</button></form>',
+    '<a href="/help">도움말</a><a href="https://x.com" target="_blank">외부</a>',
+    '</body></html>',
+  ].join('');
+  const inv = buildInventory(pageHtml, 'https://shop.example.com/signup');
+
+  const screen = (p, name, html) => ({
+    url: `https://shop.example.com${p}`, path: p, title: name, name,
+    depth: p === '/' ? 0 : 1, viaLabel: p === '/' ? null : name,
+    inventory: buildInventory(html, `https://shop.example.com${p}`),
+    behindLogin: true, authSignals: {},
+  });
+
+  const run = {
+    label: '검색어 자동차 조회',
+    form: { index: 1, name: '검색 폼', method: 'GET', action: '/search' },
+    filled: [{ index: 0, label: '검색어', value: '자동차' }],
+    skipped: [{ index: 1, label: '첨부 파일', reason: 'file 타입은 자동 입력하지 않음' }],
+    submitAction: '제출 버튼 클릭', validityBeforeSubmit: [],
+    navigated: true, httpStatus: 200,
+    before: { url: 'https://shop.example.com/', title: '홈' },
+    after: {
+      url: 'https://shop.example.com/search?q=1', title: '검색 결과', messages: [],
+      results: { statedCounts: ['12건'], largestList: 5, bodyTextLength: 900, looksEmpty: false },
+    },
+    valueInUrl: ['검색어'], consoleErrors: ['boom'], pageErrors: [], dialogs: [],
+  };
+
+  const paths = {
+    '업로드(문서)': generateFromSpec(SAMPLE).testCases,
+    '웹 한 장 분석': buildWebTestCases(inv),
+    '사이트 탐색': buildSiteTestCases({
+      start: 'https://shop.example.com/', origin: 'https://shop.example.com',
+      login: { attempted: true, ok: true, loginUrl: 'https://shop.example.com/login', movedTo: 'https://shop.example.com/my' },
+      pages: [
+        screen('/', '홈', '<html><body><a href="/o">주문</a></body></html>'),
+        screen('/o', '주문', pageHtml),
+      ],
+      notVisited: [{ url: 'https://shop.example.com/x', label: '설정' }],
+      skippedLinks: [{ url: 'https://shop.example.com/logout', label: '로그아웃', reason: '되돌릴 수 없는 동작' }],
+      limits: { maxPages: 10, maxDepth: 2 },
+      observations: { consoleErrors: [], pageErrors: [], blockedRequests: 0 },
+    }),
+    '실행 검증': buildLiveTestCases({ page: { url: 'https://shop.example.com/' } }, [run]),
+  };
+
+  Object.entries(paths).forEach(([name, tcs]) => {
+    assert.ok(tcs.length > 0, `${name}: TC 가 없다`);
+
+    tcs.forEach((tc) => {
+      // 수행 단계는 QA 가 하는 행동이어야 한다
+      (tc.steps || []).forEach((s) => {
+        assert.ok(s.includes('QA 는'), `${name} / ${tc.tc_id}: 단계에 주어가 없다 — ${s}`);
+      });
+
+      // CSV·PDF 는 읽고 실행하는 문서다. 중간이 끊기면 안 된다
+      assert.ok(!JSON.stringify(tc).includes('…'), `${name} / ${tc.tc_id}: 생략 부호가 남았다`);
+    });
+  });
+});
+
+test('모든 생성 경로 — 기대 결과의 주어는 시스템', () => {
+  const inv = buildInventory(
+    '<html lang="ko"><head><title>가입</title></head><body><form action="/s" method="post">'
+    + '<input name="email" type="email" required maxlength="50"><button>가입</button></form>'
+    + '<a href="/help">도움말</a></body></html>',
+    'https://shop.example.com/signup',
+  );
+
+  [generateFromSpec(SAMPLE).testCases, buildWebTestCases(inv)].forEach((tcs) => {
+    tcs.forEach((tc) => {
+      assert.ok(
+        (tc.expected || []).some((e) => e.startsWith('시스템은')),
+        `${tc.tc_id} 기대 결과에 시스템 주어가 없다: ${(tc.expected || []).join(' | ')}`,
+      );
+    });
+  });
 });
 
 /* ---------------------------------------------------------------- HTTP */
