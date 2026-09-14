@@ -559,7 +559,8 @@ Vercel 인스턴스는 정적 분석으로 자동 되돌아갑니다. 캡차·2F
 
 | 날짜 | 내용 | 링크 |
 | --- | --- | --- |
-| 2026-09-14 | 로그인 후 사이트 탐색 — 화면별·딥링크 TC | PR #20 |
+| 2026-09-14 | TC 문구 상세화(주어·목적어) + 유형/결과 칸 분리 + 생략 제거 | PR #21 |
+| 2026-09-14 | 로그인 후 사이트 탐색 — 화면별·딥링크 TC | [PR #20](https://github.com/alekf9099/SpecToTC/pull/20) |
 | 2026-09-14 | CSV 영역별 정리 + TC 제목 가독성 개선 | [PR #19](https://github.com/alekf9099/SpecToTC/pull/19) |
 | 2026-08-24 | 요청 확인 항목 (기획·개발 확인 요청, 화면·연동 중심) | [PR #18](https://github.com/alekf9099/SpecToTC/pull/18) |
 | 2026-08-24 | PDF 줄바꿈 문장 잇기 + 기호 없는 제목 인식 | [PR #17](https://github.com/alekf9099/SpecToTC/pull/17) |

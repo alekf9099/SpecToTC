@@ -1570,6 +1570,74 @@ test('POST /api/analyze-site — 브라우저가 꺼져 있으면 이유를 알�
   assert.equal(empty.status, 400);
 }, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_BROWSER: undefined }));
 
+/* --------------------------------------- TC 상세도 · 유형 표기 · 생략 없음 */
+
+const { TYPE_LABEL } = require('../src/csv');
+
+test('TC 상세 — 생략 부호(…)로 끊긴 내용이 없다', () => {
+  // CSV·PDF 는 읽고 그대로 실행하는 문서다. "…" 로 끊기면 무엇을 하라는지 알 수 없다.
+  const { testCases } = generateFromSpec(SAMPLE);
+
+  const cut = testCases.filter((tc) => JSON.stringify(tc).includes('…'));
+  assert.equal(cut.length, 0, `생략된 TC ${cut.length}건 — 예: ${cut[0] && cut[0].title}`);
+});
+
+test('TC 상세 — 수행 단계는 QA 의 행동, 기대 결과는 시스템의 동작', () => {
+  // 예전에는 요구사항의 동작절(시스템이 하는 일)을 그대로 `실행:` 단계에 넣어
+  // "실행: 홈 화면으로 이동하고, 액세스 토큰을 저장한다" 처럼 QA 가 할 수 없는
+  // 문장이 수행 단계에 있었다.
+  const { testCases } = generateFromSpec(SAMPLE);
+  const pass = testCases.find((tc) => tc.type === 'Pass');
+
+  assert.ok(pass.steps.every((s) => s.includes('QA 는')), `수행 단계에 주어가 없다: ${pass.steps.join(' | ')}`);
+  assert.ok(pass.expected.some((e) => e.startsWith('시스템은')), `기대 결과에 주어가 없다: ${pass.expected.join(' | ')}`);
+
+  // 단계에는 대상(화면)이 들어간다
+  assert.match(pass.steps[0], /화면에 진입한다/);
+
+  // 모든 TC 의 모든 단계가 "레이블: QA 는 …" 형태
+  testCases.forEach((tc) => {
+    tc.steps.forEach((s) => {
+      assert.match(s, /^[^:]+: /, `단계에 레이블이 없다: ${s}`);
+      assert.ok(s.includes('QA 는'), `${tc.tc_id} 단계에 주어가 없다: ${s}`);
+    });
+  });
+});
+
+test('TC 상세 — 사전 조건·검증 목적이 완결된 문장이다', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+
+  testCases.forEach((tc) => {
+    assert.ok(tc.objective && tc.objective.endsWith('.'), `${tc.tc_id} 목적이 문장이 아니다: ${tc.objective}`);
+    assert.ok(tc.precondition.length >= 1, `${tc.tc_id} 사전 조건이 비었다`);
+    // "로그인 진입 가능한 테스트 계정/데이터 준비" 같은 명사 나열이 아니라 서술문
+    assert.match(tc.precondition[0], /있다|한다|된다|이다/, `사전 조건이 서술문이 아니다: ${tc.precondition[0]}`);
+  });
+});
+
+test('CSV — 유형이 수행 결과처럼 보이지 않는다', () => {
+  // Pass/Fail 을 그대로 내보내면 "이미 통과한 것" 으로 읽힌다.
+  // 이 칸은 케이스 종류이고, 결과는 QA 가 빈 칸에 적는다.
+  assert.deepEqual(TYPE_LABEL, { Pass: '정상', Fail: '실패', 'Edge Case': '경계' });
+
+  const { testCases } = generateFromSpec(SAMPLE);
+  const csv = toCsv(testCases, { bom: false, excel: false });
+  const header = csv.trim().split(String.fromCharCode(10))[0];
+
+  assert.ok(header.includes('TC 유형'), header);
+  assert.ok(header.includes('수행 결과'), '결과를 적을 빈 칸이 없다');
+  assert.ok(header.includes('수행일') && header.includes('담당자') && header.includes('비고'));
+
+  // 본문에 Pass/Fail 영문이 유형 칸으로 나가지 않는다
+  const firstRow = csv.trim().split(String.fromCharCode(10))[1];
+  const cells = firstRow.split(',');
+  assert.ok(['정상', '실패', '경계'].includes(cells[4]), `유형 칸 값: ${cells[4]}`);
+
+  // 결과·수행일·담당자·비고는 비어 있어야 한다 (QA 가 채운다)
+  assert.equal(cells[6], '', '수행 결과가 미리 채워져 있다');
+  assert.equal(cells[7], '', '수행일이 미리 채워져 있다');
+});
+
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {
