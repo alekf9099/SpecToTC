@@ -12,7 +12,9 @@
  * 옳은지는 QA 가 판단하도록 남긴다. 이 구분을 문구에서 흐리면 안 된다.
  */
 
-const { step, truncate } = require('../engine/generator');
+const {
+  step, truncate, qa,
+} = require('../engine/generator');
 
 const TYPE_TAG = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
 const BASELINE = '현재 동작(기준선)';
@@ -136,8 +138,8 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
     const handled = looksHandled(run);
 
     const inputSteps = run.filled.length
-      ? run.filled.map((f) => step('입력', `${f.label} = ${f.value}`))
-      : [step('입력', '입력 없이 진행')];
+      ? run.filled.map((f) => step('입력', qa(`${f.label} 에 ${f.value} 를 입력한다`)))
+      : [step('입력', qa('아무 값도 입력하지 않고 진행한다'))];
 
     emit(handled ? 'Pass' : 'Fail', area, {
       title: `${run.label} — 실제 제출 결과 확인`,
@@ -148,10 +150,10 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         '헤드리스 브라우저로 실제 제출 (관측 시점 기준)',
       ],
       steps: [
-        step('진입', run.before.url),
+        step('진입', qa(`브라우저에서 ${run.before.url} 를 연다`)),
         ...inputSteps,
-        step('실행', run.submitAction),
-        step('확인', '이동한 주소 · 결과 건수 · 화면 안내 문구 · 콘솔 오류'),
+        step('실행', qa(`${run.submitAction} 으로 제출한다`)),
+        step('확인', qa('이동한 주소와 결과 건수, 화면 안내 문구, 콘솔 오류를 확인한다')),
       ],
       expected: expectedFrom(run),
       evidence: evidenceFor(run),
@@ -166,10 +168,12 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         title: `자동 입력하지 못한 필드 수동 확인 (${run.skipped.length}개)`,
         objective: '자동화가 값을 넣지 못한 필드는 사람이 직접 확인해야 한다.',
         precondition: [`${host} 접속 가능`],
-        steps: run.skipped.slice(0, 6).map((s) => step('확인', `${s.label || `필드 ${s.index}`} — ${s.reason}`)),
+        steps: run.skipped.slice(0, 6).map((x) => step('확인', qa(
+          `${x.label || `필드 ${x.index}`} 에 값을 직접 입력해 동작을 확인한다 (자동 입력 실패 사유: ${x.reason})`,
+        ))),
         expected: [
-          '해당 필드를 수동으로 입력해 정상 동작을 확인',
-          '자동화 대상에서 제외된 이유가 타당한지 점검 (파일 업로드·캡차 등)',
+          'QA 가 해당 필드를 수동으로 입력해 정상 동작을 확인한다',
+          '자동화에서 제외된 이유가 타당한지 점검한다 (파일 업로드·캡차 등)',
         ],
         evidence: `실행 관측 · 자동 입력 실패: ${run.skipped.map((s) => `${s.label || s.index}(${truncate(s.reason, 40)})`).join(' / ')}`,
         priority: 'Low',
@@ -185,9 +189,9 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         objective: '제출 흐름에서 콘솔 오류나 스크립트 예외가 발생하지 않아야 한다.',
         precondition: [`${host} 접속 가능`, '개발자 도구 콘솔 열어둔 상태'],
         steps: [
-          step('진입', run.before.url),
-          step('실행', `${run.label} 과 같은 값으로 제출`),
-          step('확인', '콘솔 탭의 오류 메시지'),
+          step('진입', qa(`개발자 도구를 연 상태로 ${run.before.url} 에 진입한다`)),
+          step('실행', qa(`${run.label} 과 같은 값으로 제출한다`)),
+          step('확인', qa('콘솔 탭의 오류 메시지를 확인한다')),
         ],
         expected: [
           '콘솔 오류 없음',

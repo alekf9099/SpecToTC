@@ -620,4 +620,7 @@ function summarize(testCases) {
 module.exports = {
   buildTestCases, summarize, calcPriority, boundaryPoints,
   TYPE, clean, truncate, step, LABELS, WEIGHTS, fmt, formatCriterion,
+  // 웹·사이트·실행 검증 생성기도 같은 문구 규칙을 쓴다
+  // (수행 단계의 주어는 QA, 기대 결과의 주어는 시스템)
+  qa, sys,
 };

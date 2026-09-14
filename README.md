@@ -78,7 +78,7 @@ SpecToTC/
 │                             summary-view.js / qa-plan-view.js / report.js / web-view.js /
 │                             web-form-editor.js / theme.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (123 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (125 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -501,6 +501,9 @@ POST /api/analyze-url
           • 화면에 오류 문구나 경고 알럿이 표시되지 않는다
           • 서버가 2xx 로 응답한다
 ```
+
+이 규칙은 **네 가지 생성 경로 전부**에 적용됩니다 — 업로드(문서) · 웹 한 장 분석 · 사이트 탐색 · 실행 검증.
+같은 CSV 안에서 경로마다 문장 규칙이 다르면 읽는 사람이 혼란스럽습니다 (테스트로 고정).
 
 **생략(`…`)하지 않습니다.** CSV·PDF 는 읽고 그대로 실행하는 문서라 중간이 끊기면 무엇을 하라는지 알 수 없습니다.
 화면 표가 길어지는 문제는 CSS 두 줄 제한으로 처리합니다. 샘플 98건에 생략 부호가 0건인 것을 테스트로 고정했습니다.

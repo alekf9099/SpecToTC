@@ -15,7 +15,9 @@
  */
 
 const { buildWebTestCases } = require('./webTestCases');
-const { step, truncate } = require('../engine/generator');
+const {
+  step, truncate, qa, sys,
+} = require('../engine/generator');
 
 const TYPE_TAG = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
 
@@ -71,10 +73,10 @@ function loginCases(emit, crawl) {
     objective: '전달받은 계정으로 로그인이 완료되고 로그인 상태 화면으로 진입하는지 확인한다.',
     precondition: [`로그인 화면 접근 가능: ${at}`, `${CREDENTIAL_PLACEHOLDER} 준비`],
     steps: [
-      step('진입', at),
-      step('입력', `${CREDENTIAL_PLACEHOLDER}의 아이디 · 비밀번호`),
-      step('실행', '로그인'),
-      step('확인', '이동한 화면 · 로그아웃 메뉴 노출 여부'),
+      step('진입', qa(`브라우저에서 ${at} 를 연다`)),
+      step('입력', qa(`로그인 화면에 ${CREDENTIAL_PLACEHOLDER}의 아이디와 비밀번호를 입력한다`)),
+      step('실행', qa('로그인 버튼을 누른다')),
+      step('확인', qa('이동한 화면 주소와 로그아웃 메뉴 노출 여부를 확인한다')),
     ],
     expected: login.ok
       ? [
@@ -97,14 +99,15 @@ function loginCases(emit, crawl) {
     objective: '자격 증명이 틀렸을 때 로그인이 차단되고 사유가 안내되는지 확인한다.',
     precondition: [`로그인 화면 접근 가능: ${at}`],
     steps: [
-      step('입력', '올바른 아이디 + 틀린 비밀번호'),
-      step('실행', '로그인'),
-      step('확인', '오류 문구 · 잔여 시도 횟수 안내'),
+      step('진입', qa(`브라우저에서 ${at} 를 연다`)),
+      step('입력', qa('올바른 아이디와 틀린 비밀번호를 입력한다')),
+      step('실행', qa('로그인 버튼을 누른다')),
+      step('확인', qa('오류 문구와 잔여 시도 횟수 안내를 확인한다')),
     ],
     expected: [
-      '로그인 차단',
-      '아이디/비밀번호 중 무엇이 틀렸는지 특정하지 않는 문구 (계정 열거 방지)',
-      '연속 실패 시 잠금·캡차 정책 동작 (정책 확인 필요)',
+      sys('로그인을 차단한다'),
+      sys('아이디와 비밀번호 중 무엇이 틀렸는지 특정하지 않는 문구를 보여준다 (계정 열거 방지)'),
+      sys('연속 실패 시 잠금·캡차 정책을 적용한다 (정책 확인 필요)'),
     ],
     evidence,
     priority: 'High',
@@ -117,11 +120,15 @@ function loginCases(emit, crawl) {
     objective: '세션이 화면 이동과 새로고침에서 유지되는지 확인한다.',
     precondition: ['로그인 완료 상태'],
     steps: [
-      step('실행', '로그인 후 임의 화면에서 새로고침'),
-      step('실행', '새 탭으로 같은 주소 열기'),
-      step('확인', '로그인 상태 유지 여부'),
+      step('실행', qa('로그인한 뒤 임의 화면에서 새로고침한다')),
+      step('실행', qa('새 탭으로 같은 주소를 연다')),
+      step('확인', qa('두 경우 모두 로그인 상태가 유지되는지 확인한다')),
     ],
-    expected: ['로그인 상태 유지', '로그인 화면으로 튕기지 않음', '세션 만료 시간은 기획 확인 필요'],
+    expected: [
+      sys('새로고침·새 탭에서도 로그인 상태를 유지한다'),
+      sys('로그인 화면으로 되돌리지 않는다'),
+      '세션 만료 시간은 기획 확인이 필요하다',
+    ],
     evidence,
     priority: 'Med',
     categories: ['사이트 탐색', '인증'],
@@ -148,11 +155,12 @@ function deepLinkCases(emit, crawl) {
     title: `주소 직접 입력으로 화면 진입 (${list.length}개 경로)`,
     objective: '링크를 거치지 않고 주소로 바로 들어가도 화면이 정상 구성되는지 확인한다.',
     precondition: ['로그인 완료 상태', '이전 화면을 거치지 않고 주소창에 직접 입력'],
-    steps: list.map((p) => step('진입', `${p.path} — ${p.name}`)),
+    steps: list.map((p) => step('진입', qa(`주소창에 ${p.path} 를 직접 입력해 ${p.name} 화면을 연다`)))
+      .concat(step('확인', qa('각 화면이 빈 화면이나 오류 없이 구성되는지 확인한다'))),
     expected: [
-      '각 경로가 빈 화면·오류 없이 로드됨',
-      '앞 화면에서 넘겨주던 값이 없어도 깨지지 않음',
-      '새로고침해도 같은 화면이 유지됨',
+      sys('각 경로를 빈 화면·오류 없이 로드한다'),
+      sys('앞 화면에서 넘겨주던 값이 없어도 화면을 정상 구성한다'),
+      sys('새로고침해도 같은 화면을 유지한다'),
     ],
     evidence: `탐색 관측 · 내부 경로 ${inner.length}개 발견 (${list.slice(0, 5).map((p) => p.path).join(', ')}${inner.length > 5 ? ' …' : ''})`,
     priority: 'High',
@@ -165,15 +173,15 @@ function deepLinkCases(emit, crawl) {
     objective: '로그인이 필요한 화면이 비로그인 상태에서 차단되는지 확인한다.',
     precondition: ['로그아웃 또는 시크릿 창', '세션 쿠키 없음'],
     steps: [
-      step('상태', '로그아웃 후 모든 쿠키 삭제'),
-      ...list.slice(0, 8).map((p) => step('진입', `${p.path} 직접 접근`)),
-      step('확인', '로그인 화면 유도 여부 · 원래 가려던 곳으로 복귀하는지'),
+      step('상태', qa('로그아웃한 뒤 브라우저의 모든 쿠키를 삭제한다')),
+      ...list.slice(0, 8).map((p) => step('진입', qa(`주소창에 ${p.path} 를 직접 입력한다`))),
+      step('확인', qa('로그인 화면으로 유도되는지, 로그인 후 원래 가려던 곳으로 돌아오는지 확인한다')),
     ],
     expected: [
-      '보호가 필요한 화면은 로그인 화면으로 이동',
-      '로그인 후 원래 가려던 경로로 복귀 (미복귀면 결함 후보)',
-      '보호 대상 데이터가 잠깐이라도 노출되지 않음',
-      '※ 어느 화면이 보호 대상인지는 기획 확인이 필요합니다.',
+      sys('보호가 필요한 화면은 로그인 화면으로 이동시킨다'),
+      sys('로그인 후 원래 가려던 경로로 되돌려 준다 (되돌리지 않으면 결함 후보)'),
+      sys('보호 대상 데이터를 잠깐이라도 노출하지 않는다'),
+      '어느 화면이 보호 대상인지는 기획 확인이 필요하다',
     ],
     evidence: `탐색 관측 · 로그인 세션으로 접근한 경로 ${inner.length}개`,
     priority: 'High',
@@ -186,14 +194,15 @@ function deepLinkCases(emit, crawl) {
     objective: '없는 경로나 손상된 파라미터에서 안전하게 실패하는지 확인한다.',
     precondition: ['로그인 완료 상태'],
     steps: [
-      step('진입', `${list[0].path}/__not_found__`),
-      step('진입', `${list[0].path}?id=0 · ?id=-1 · ?id=abc (파라미터가 있는 화면)`),
-      step('진입', '다른 사용자 소유 자원의 식별자로 접근'),
+      step('진입', qa(`주소창에 ${list[0].path}/__not_found__ 를 입력한다`)),
+      step('진입', qa(`파라미터가 있는 화면에 ${list[0].path}?id=0, ?id=-1, ?id=abc 를 각각 입력한다`)),
+      step('진입', qa('다른 사용자 소유 자원의 식별자로 접근한다')),
+      step('확인', qa('각 경우의 화면과 응답 코드를 확인한다')),
     ],
     expected: [
-      '404·오류 화면이 안내와 함께 노출 (빈 화면·무한 로딩 없음)',
-      '다른 사용자 자원은 403 또는 목록으로 차단',
-      '서버 오류(5xx)나 스택 트레이스 노출 없음',
+      sys('404·오류 화면을 안내와 함께 보여준다 (빈 화면·무한 로딩 없음)'),
+      sys('다른 사용자 자원은 403 으로 차단하거나 목록으로 되돌린다'),
+      sys('서버 오류(5xx)나 스택 트레이스를 노출하지 않는다'),
     ],
     evidence: `탐색 관측 · 대표 경로 ${list[0].path}`,
     priority: 'High',
@@ -212,11 +221,12 @@ function navigationCases(emit, crawl) {
     title: `메뉴·링크로 화면 이동 (${reached.length}개)`,
     objective: '메뉴에서 각 화면으로 이동하고 뒤로 가기로 되돌아오는지 확인한다.',
     precondition: ['로그인 완료 상태'],
-    steps: reached.slice(0, 10).map((p) => step('이동', `"${p.viaLabel}" → ${p.path} (${p.name})`)),
+    steps: reached.slice(0, 10).map((p) => step('이동', qa(`메뉴에서 "${p.viaLabel}" 을 눌러 ${p.name}(${p.path}) 으로 이동한다`)))
+      .concat(step('확인', qa('각 이동 결과와 뒤로 가기 복귀, 메뉴의 현재 위치 표시를 확인한다'))),
     expected: [
-      '각 링크가 의도한 화면으로 이동',
-      '뒤로 가기로 이전 화면 복귀',
-      '현재 위치가 메뉴에 표시됨 (활성 표시)',
+      sys('각 링크에서 의도한 화면으로 이동시킨다'),
+      sys('뒤로 가기를 누르면 이전 화면으로 되돌린다'),
+      sys('현재 위치를 메뉴에 활성 표시한다'),
     ],
     evidence: `탐색 관측 · 링크로 도달한 화면 ${reached.length}개`,
     priority: 'Med',
@@ -229,11 +239,11 @@ function navigationCases(emit, crawl) {
       title: `자동 탐색에서 제외한 링크 수동 확인 (${crawl.skippedLinks.length}개)`,
       objective: '되돌릴 수 없는 동작이라 자동으로 눌러보지 않은 링크를 사람이 확인한다.',
       precondition: ['데이터 복구 방법 확보 후 진행'],
-      steps: crawl.skippedLinks.slice(0, 8).map((s) => step('확인', `${s.label || s.url} — ${s.reason}`)),
+      steps: crawl.skippedLinks.slice(0, 8).map((x) => step('확인', qa(`"${x.label || x.url}" 를 직접 눌러 동작을 확인한다 (${x.reason})`))),
       expected: [
-        '각 동작에 확인 단계가 있는지',
-        '실행 후 되돌릴 수 있는지(Undo·복구)',
-        '권한 없는 계정으로는 차단되는지',
+        sys('각 동작 전에 확인 단계를 보여준다'),
+        sys('실행한 뒤 되돌릴 수 있는 수단(Undo·복구)을 제공한다'),
+        sys('권한 없는 계정의 실행을 차단한다'),
       ],
       evidence: `탐색 관측 · 위험 판단으로 제외한 링크 ${crawl.skippedLinks.length}개`,
       priority: 'High',
@@ -247,9 +257,9 @@ function navigationCases(emit, crawl) {
       title: `탐색 상한으로 보지 못한 화면 (${crawl.notVisited.length}개)`,
       objective: '자동 탐색 범위 밖의 화면은 TC 가 없으므로 범위를 넓히거나 수동으로 확인한다.',
       precondition: [],
-      steps: crawl.notVisited.slice(0, 8).map((p) => step('확인', `${p.label || p.url}`)),
+      steps: crawl.notVisited.slice(0, 8).map((p) => step('확인', qa(`"${p.label || p.url}" 화면을 직접 열어 확인한다`))),
       expected: [
-        `탐색 상한(페이지 ${crawl.limits.maxPages} · 깊이 ${crawl.limits.maxDepth})을 넓혀 재분석하거나 수동 확인`,
+        `탐색 상한(페이지 ${crawl.limits.maxPages} · 깊이 ${crawl.limits.maxDepth})을 넓혀 다시 분석하거나 QA 가 수동으로 확인한다`,
       ],
       evidence: `탐색 관측 · 상한에 걸려 미방문 ${crawl.notVisited.length}개`,
       priority: 'Low',
