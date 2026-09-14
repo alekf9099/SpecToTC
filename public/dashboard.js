@@ -57,6 +57,8 @@ async function api(path, body) {
 
 /* --------------------------------------------------------------- rendering */
 const TYPE_CLASS = { Pass: 'pass', Fail: 'fail', 'Edge Case': 'edge' };
+// Pass/Fail 을 그대로 보여주면 '수행 결과' 로 읽힌다. 이 칸은 케이스 종류다.
+const TYPE_LABEL = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
 
 function visibleCases() {
   const { type, priority, area, q } = state.filter;
@@ -140,7 +142,7 @@ function renderTable() {
       <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
         <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}${
       tc.origin === 'live' ? '<span class="pill pill-live" title="브라우저로 실제 실행해 관측한 결과">실측</span>' : ''}</td>
-        <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}">${esc(tc.type)}</span></td>
+        <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}" title="케이스 종류 (수행 결과 아님)">${esc(TYPE_LABEL[tc.type] || tc.type)}</span></td>
         <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
         <td class="cell-area">${esc(tc.area)}</td>
         <td class="cell-title">${esc(title)}<span class="cell-objective">${esc(tc.objective || '')}</span></td>

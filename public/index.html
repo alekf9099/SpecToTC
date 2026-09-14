@@ -170,9 +170,9 @@
       <div class="filters">
         <div class="chips" id="typeFilters">
           <button class="chip is-active" data-type="all">전체</button>
-          <button class="chip chip-pass" data-type="Pass">Pass</button>
-          <button class="chip chip-fail" data-type="Fail">Fail</button>
-          <button class="chip chip-edge" data-type="Edge Case">Edge</button>
+          <button class="chip chip-pass" data-type="Pass">정상</button>
+          <button class="chip chip-fail" data-type="Fail">실패</button>
+          <button class="chip chip-edge" data-type="Edge Case">경계</button>
         </div>
         <select id="priorityFilter" class="select">
           <option value="all">중요도 전체</option>
@@ -191,7 +191,7 @@
           <thead>
             <tr>
               <th class="col-id">TC_ID</th>
-              <th class="col-type">유형</th>
+              <th class="col-type" title="케이스 종류 — 수행 결과가 아닙니다">TC 유형</th>
               <th class="col-priority">중요도</th>
               <th class="col-area">영역</th>
               <th class="col-scenario">테스트 시나리오</th>

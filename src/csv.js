@@ -68,13 +68,30 @@ function organize(testCases) {
  * CSV 컬럼 정의 — 사내 TC 양식에 맞추려면 이 배열만 수정하면 된다.
  * 순서는 "표를 왼쪽부터 읽으며 그대로 실행할 수 있는가" 기준으로 정렬했다.
  */
+/**
+ * 유형을 한글로 적는다.
+ *
+ * `Pass` / `Fail` 을 그대로 내보냈더니 **수행 결과**로 읽혔다. 아직 아무것도
+ * 실행하지 않았는데 이미 "Pass" 라고 적혀 있으니 당연한 오해다.
+ * 이 칸은 "어떤 종류의 케이스인가"(정상 흐름·실패 흐름·경계값)를 뜻한다.
+ * 실제 결과는 아래 `수행 결과` 빈 칸에 QA 가 적는다.
+ */
+const TYPE_LABEL = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
+
 const COLUMNS = [
   { header: '연번', get: (tc) => tc._no || '' },
   { header: '요구사항 영역', get: (tc) => tc.area },
   { header: '영역 내 순서', get: (tc) => tc._ofArea || '' },
   { header: 'TC_ID', get: (tc) => tc.tc_id },
-  { header: '유형', get: (tc) => tc.type },
+  { header: 'TC 유형', get: (tc) => TYPE_LABEL[tc.type] || tc.type },
   { header: '중요도', get: (tc) => tc.priority },
+
+  // QA 가 실행하며 채우는 칸 — 비워서 내보낸다
+  { header: '수행 결과', get: () => '' },
+  { header: '수행일', get: () => '' },
+  { header: '담당자', get: () => '' },
+  { header: '비고', get: () => '' },
+
   { header: '테스트 시나리오', get: (tc) => tc.title || tc.scenario },
   { header: '검증 목적', get: (tc) => tc.objective },
   { header: '사전 조건', get: (tc) => bulleted(tc.precondition) },
@@ -123,4 +140,4 @@ function csvFileName(prefix = 'spectotc-tc') {
   return `${prefix}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.csv`;
 }
 
-module.exports = { toCsv, csvFileName, COLUMNS, numbered, bulleted, organize };
+module.exports = { toCsv, csvFileName, COLUMNS, numbered, bulleted, organize, TYPE_LABEL };
