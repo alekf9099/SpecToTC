@@ -105,7 +105,7 @@ function passCases(req) {
 
   if (req.categories.includes('STATE')) {
     cases.push({
-      title: `${action} 후 재진입 시 상태 유지`,
+      title: '재진입 후 상태 유지',
       objective: '저장/동기화된 상태가 재진입 후에도 복원되는지 확인한다.',
       precondition: basePrecondition(req, '정상 처리 1회 완료된 상태'),
       steps: [step('실행', action), step('조작', '새로고침 또는 앱 재실행'), step('확인', '동일 화면 재진입')],
@@ -116,7 +116,7 @@ function passCases(req) {
 
   if (req.categories.includes('NOTIFICATION')) {
     cases.push({
-      title: `${action} 시 알림 발송`,
+      title: '알림 발송',
       objective: '명세된 채널로 알림이 1건 발송되고 문구가 일치하는지 확인한다.',
       precondition: basePrecondition(req, '알림 수신 채널(푸시/메일/SMS) 활성화'),
       steps: [step('실행', action), step('확인', '수신 채널에서 알림 도착 여부')],
@@ -219,7 +219,7 @@ function failCases(req, limit) {
 
   if (req.condition) {
     cases.push({
-      title: `조건 미충족(${truncate(req.condition, 28)} 아님) 상태에서 실행`,
+      title: `조건 미충족 상태에서 실행 (조건: ${truncate(req.condition, 28)})`,
       objective: '조건을 만족하지 않을 때 동작이 차단되고 사유가 안내되는지 확인한다.',
       precondition: basePrecondition(req, `${truncate(req.condition, 60)} 조건을 의도적으로 불충족 상태로 설정`),
       steps: [
@@ -375,6 +375,35 @@ const DEFAULTS = {
 
 const TYPE_TAG = { [TYPE.PASS]: '정상', [TYPE.FAIL]: '실패', [TYPE.EDGE]: '경계' };
 
+/** 이 TC 가 무엇을 대상으로 하는지 — 제목에서 케이스를 구분해 주는 부분 */
+function subjectOf(req) {
+  return truncate(req.action || req.text, 34);
+}
+
+/**
+ * 표에서 한 줄만 보고 무슨 테스트인지 알 수 있는 제목을 만든다.
+ *
+ * 두 가지를 고친 결과다.
+ *   1) 영역을 제목에서 뺐다. 화면 표와 CSV 모두 `영역` 이 별도 칸이라 그대로 중복이었다.
+ *   2) 레시피 제목에 대상을 붙인다. "미인증 / 권한 없는 계정 접근" 은 한 영역 안에서
+ *      요구사항마다 똑같이 나와, 표에서 네 줄이 완전히 구별되지 않았다.
+ */
+function scenarioTitle(req, tc) {
+  const base = clean(tc.title);
+  if (tc.generic === false) return base;
+
+  const subject = subjectOf(req);
+  if (!subject) return base;
+
+  // 이미 대상이 제목에 들어 있으면(정상 흐름처럼 제목 자체가 대상인 경우) 덧붙이지 않는다.
+  // 둘 다 길이 제한으로 잘려 있을 수 있어 말줄임을 떼고 앞부분으로 비교한다.
+  const head = (s) => s.replace(/…$/, '');
+  if (base.includes(subject) || subject.includes(base)) return base;
+  if (base.startsWith(head(subject)) || subject.startsWith(head(base))) return base;
+
+  return `${base} — ${subject}`;
+}
+
 /**
  * 파싱된 요구사항 목록 → 테스트케이스 목록
  *
@@ -392,7 +421,7 @@ function buildTestCases(requirements, options = {}) {
   const emit = (req, type, tc) => {
     const code = TYPE_CODE[type];
     counters[code] += 1;
-    const title = `[${TYPE_TAG[type]}] ${req.area} — ${tc.title}`;
+    const title = `[${TYPE_TAG[type]}] ${scenarioTitle(req, tc)}`;
 
     out.push({
       tc_id: `${opt.idPrefix}-${code}-${String(counters[code]).padStart(3, '0')}`,

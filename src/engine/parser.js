@@ -171,10 +171,17 @@ function extractRetryCount(text) {
  * 조건절/동작절 분리. 실패하면 condition=null, action=원문.
  */
 function splitConditionAction(text) {
+  // `시` 는 뒤에 공백·쉼표가 와야 조건 연결어다. 그렇지 않으면 "재시도" 의 `시` 를
+  // 조건 경계로 잡아 "…최대 2회 재 / 도한다" 처럼 단어 중간에서 쪼갠다.
   const ko = text.match(
-    /^\s*(.{2,}?)(?:일\s*때|할\s*때|인\s*경우|하는\s*경우|되는\s*경우|하면|되면|이면|라면|한\s*뒤|한\s*후|시)\s*[,]?\s*(.{4,})$/
+    /^\s*(.{2,}?)(일\s*때|할\s*때|인\s*경우|하는\s*경우|되는\s*경우|한\s*경우|할\s*경우|하면|되면|이면|라면|으면|한\s*뒤|한\s*후|시(?=[\s,]))\s*[,]?\s*(.{4,})$/
   );
-  if (ko) return { condition: ko[1].trim(), action: ko[2].trim() };
+  if (ko) {
+    // `~으면` 은 어간만 남으면 "…오지 않" 처럼 말이 끊긴다. 명사형으로 맞춰 준다.
+    const stem = ko[1].trim();
+    const condition = ko[2] === '으면' ? `${stem}음` : stem;
+    return { condition, action: ko[3].trim() };
+  }
 
   const en = text.match(/^\s*(?:if|when|whenever|once|in case of)\s+(.{2,}?)(?:\s*,\s*|\s+then\s+)(.{4,})$/i);
   if (en) return { condition: en[1].trim(), action: en[2].trim() };
