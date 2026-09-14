@@ -1317,6 +1317,110 @@ test('요청 확인 항목 — 요약 응답에 포함된다', () => withServer(
   assert.ok(Array.isArray(data.summary.questions.groups));
   assert.equal(typeof data.summary.questions.frontendRatio, 'number');
 }, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+/* ------------------------------------------- CSV 정리 · 제목 가독성 */
+
+const { organize } = require('../src/csv');
+
+test('CSV — 영역별로 묶여 정렬되고 연번이 붙는다', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+  const rows = organize(testCases);
+
+  assert.equal(rows.length, testCases.length, '행이 유실되면 안 된다');
+
+  // 같은 영역이 흩어지지 않고 한 덩어리로 모인다
+  const seen = new Set();
+  let prev = null;
+  rows.forEach((tc) => {
+    if (tc.area !== prev) {
+      assert.ok(!seen.has(tc.area), `영역이 흩어졌다: ${tc.area}`);
+      seen.add(tc.area);
+      prev = tc.area;
+    }
+  });
+
+  // 영역 순서는 문서 등장 순서를 유지한다 (가나다순으로 뒤집지 않는다)
+  const docOrder = [...new Set(testCases.map((t) => t.area))];
+  assert.deepEqual([...seen], docOrder);
+
+  // 영역 안에서는 정상 → 실패 → 경계 순서
+  const rank = { Pass: 0, Fail: 1, 'Edge Case': 2 };
+  rows.forEach((tc, i) => {
+    const next = rows[i + 1];
+    if (next && next.area === tc.area) {
+      assert.ok(rank[tc.type] <= rank[next.type], `유형 순서가 어긋났다: ${tc.type} → ${next.type}`);
+    }
+  });
+});
+
+test('CSV — 연번이 영역별로 1부터 매겨지고 총 건수를 함께 보여준다', () => {
+  const rows = organize(generateFromSpec(SAMPLE).testCases);
+  const first = rows[0];
+
+  assert.match(first._no, /^[^-]+-01$/, `연번 형식이 다르다: ${first._no}`);
+  assert.match(first._ofArea, new RegExp('^1/\\d+$'));
+
+  // 영역 이름 앞머리 번호는 연번에서 뺀다 ("1. 로그인" → "로그인-01")
+  assert.ok(!first._no.startsWith('1.'), `영역 번호가 연번에 섞였다: ${first._no}`);
+
+  // 영역마다 1부터 다시 시작하고, 마지막 번호가 그 영역의 총 건수와 같다
+  const byArea = new Map();
+  rows.forEach((tc) => { byArea.set(tc.area, (byArea.get(tc.area) || 0) + 1); });
+  byArea.forEach((count, area) => {
+    const last = rows.filter((t) => t.area === area).pop();
+    assert.equal(last._ofArea, `${count}/${count}`, `${area} 의 마지막 순서가 총 건수와 다르다`);
+  });
+});
+
+test('CSV — 헤더에 연번·영역이 앞에 오고 행 수가 맞는다', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+  const csv = toCsv(testCases, { bom: false, excel: false });
+  const lines = csv.trim().split(String.fromCharCode(10));
+
+  assert.ok(lines[0].startsWith('연번,요구사항 영역,영역 내 순서,TC_ID'), lines[0]);
+
+  // 셀 안의 줄바꿈을 고려해 따옴표 밖의 줄만 센다
+  let quoted = false;
+  let rowCount = 0;
+  for (const ch of csv.trim()) {
+    if (ch === '"') quoted = !quoted;
+    if (ch === String.fromCharCode(10) && !quoted) rowCount += 1;
+  }
+  assert.equal(rowCount, testCases.length, '헤더 제외 행 수가 TC 수와 같아야 한다');
+});
+
+test('제목 — 표에서 한 줄만 보고 구분된다 (중복·영역 중복 표기 없음)', () => {
+  const { testCases } = generateFromSpec(SAMPLE);
+  const titles = testCases.map((t) => t.title);
+
+  // 완전히 같은 제목이 있으면 표에서 어느 줄인지 알 수 없다
+  const dup = titles.filter((t, i) => titles.indexOf(t) !== i);
+  assert.equal(dup.length, 0, `중복 제목: ${[...new Set(dup)].slice(0, 3).join(' / ')}`);
+
+  // 영역은 별도 칸이므로 제목에 다시 넣지 않는다
+  testCases.forEach((tc) => {
+    assert.ok(!tc.title.includes(`] ${tc.area} —`), `제목에 영역이 중복됐다: ${tc.title}`);
+  });
+});
+
+test('제목 — 단어 중간에서 끊긴 문구가 없다', () => {
+  // "재시도" 의 `시` 를 조건 연결어로 잡아 "최대 2회 재 / 도한다" 로 쪼개던 문제
+  const { condition, action } = splitConditionAction('서버 응답이 3초 이내에 오지 않으면 최대 2회 재시도한다.');
+  assert.ok(!/재$/.test(String(condition)), `조건이 단어 중간에서 끊겼다: ${condition}`);
+  assert.match(action, /재시도한다/);
+
+  // `~으면` 은 어간만 남기지 않고 명사형으로 맞춘다
+  const neg = splitConditionAction('이메일 형식이 유효하지 않으면 다음 단계로 이동할 수 없다.');
+  assert.equal(neg.condition, '이메일 형식이 유효하지 않음');
+  assert.equal(neg.action, '다음 단계로 이동할 수 없다.');
+
+  // `시` 가 단어 안에 있으면 조건으로 보지 않는다
+  assert.equal(splitConditionAction('재시도한다 그리고 기록한다').condition, null);
+
+  const { testCases } = generateFromSpec(SAMPLE);
+  testCases.forEach((tc) => {
+    assert.ok(!/ → 도한다|재 →| 없다 시 /.test(tc.title), `제목이 깨졌다: ${tc.title}`);
+  });
+});
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {
