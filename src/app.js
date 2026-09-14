@@ -19,6 +19,8 @@ const { applyOverrides, sanitizeInventory } = require('./web/overrides');
 const { browserEnabled, browserSupport } = require('./web/browser');
 const { renderInventory, runFormCase } = require('./web/liveRun');
 const { buildLiveTestCases } = require('./web/liveTestCases');
+const { crawlSite } = require('./web/crawl');
+const { buildSiteTestCases } = require('./web/siteTestCases');
 const auth = require('./auth');
 const { limiter } = require('./ratelimit');
 const ai = require('./ai');
@@ -466,6 +468,89 @@ function createApp() {
    *   3) GET 폼만 (POST 는 SPECTOTC_LIVE_ALLOW_POST=1 을 추가로 요구)
    * 임의의 공개 사이트에 가입·문의·로그인을 자동 제출하는 도구가 되지 않게 하기 위한 것이다.
    */
+  /**
+   * 로그인 후 사이트를 돌며 화면별 TC 를 만든다.
+   *
+   * 한 장짜리 분석(/api/analyze-url)과 다른 점은 **여러 화면**을 본다는 것이다.
+   * 로그인 정보를 주면 그 세션으로 돌기 때문에 로그인 뒤 화면까지 분석된다.
+   *
+   * 자격 증명 취급 — 받은 값은 브라우저에 입력하는 데만 쓰고 어디에도 남기지 않는다.
+   * 로그·응답·TC 문구 어디에도 들어가지 않는다. 로그인은 대상 사이트에 실제 요청을
+   * 보내는 행위이므로 실행 검증과 같은 3중 게이트를 통과해야 한다.
+   */
+  app.post('/api/analyze-site', liveLimiter, async (req, res) => {
+    const body = req.body || {};
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) return badRequest(res, '분석할 주소를 입력해 주세요.');
+
+    if (!browserEnabled()) {
+      return badRequest(res, '사이트 탐색은 브라우저 실행이 필요합니다. 서버에 SPECTOTC_BROWSER=1 을 설정하세요. (Vercel 배포에서는 사용할 수 없습니다)');
+    }
+
+    const raw = body.login || {};
+    const login = (typeof raw.password === 'string' && raw.password)
+      ? {
+        username: typeof raw.username === 'string' ? raw.username.slice(0, 200) : '',
+        password: raw.password.slice(0, 200),
+        url: typeof raw.url === 'string' && raw.url.trim() ? raw.url.trim() : null,
+      }
+      : null;
+
+    const started = Date.now();
+    let crawl;
+    try {
+      crawl = await crawlSite(url, {
+        login,
+        maxPages: body.maxPages,
+        maxDepth: body.maxDepth,
+      });
+    } catch (err) {
+      logMeta('site.failed', { ms: Date.now() - started, withLogin: Boolean(login) });
+      return badRequest(res, err.message);
+    }
+
+    const testCases = buildSiteTestCases(crawl);
+    const summary = buildWebSummary(crawl.pages[0] ? crawl.pages[0].inventory : { page: { url } }, testCases);
+
+    // 아이디·비밀번호는 기록하지 않는다. 시도 여부와 성공 여부만 남긴다.
+    logMeta('site.ok', {
+      host: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+      pages: crawl.pages.length,
+      loginAttempted: Boolean(crawl.login),
+      loginOk: Boolean(crawl.login && crawl.login.ok),
+      tc: testCases.length,
+      ms: Date.now() - started,
+    });
+
+    res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - started,
+      site: {
+        start: crawl.start,
+        origin: crawl.origin,
+        limits: crawl.limits,
+        // 자격 증명은 돌려주지 않는다 — 시도/성공 여부와 안내만
+        login: crawl.login
+          ? { attempted: true, ok: crawl.login.ok, loginUrl: crawl.login.loginUrl, movedTo: crawl.login.movedTo, note: crawl.login.note }
+          : null,
+        pages: crawl.pages.map((p) => ({
+          url: p.url, path: p.path, name: p.name, depth: p.depth, viaLabel: p.viaLabel,
+          forms: p.inventory.interaction.forms.length,
+          links: p.inventory.links.internalCount,
+          buttons: p.inventory.interaction.buttonCount,
+        })),
+        notVisited: crawl.notVisited,
+        skippedLinks: crawl.skippedLinks,
+        observations: crawl.observations,
+      },
+      testCases,
+      specSummary: summary,
+      summary: summarize(testCases),
+      areas: [...new Set(testCases.map((tc) => tc.area))],
+    });
+  });
+
   app.post('/api/live-verify', liveLimiter, async (req, res) => {
     const body = req.body || {};
     const url = typeof body.url === 'string' ? body.url.trim() : '';

@@ -72,6 +72,49 @@ function assertSubmitAllowed(hostname, method) {
   }
 }
 
+/**
+ * 사내 스테이징처럼 **내부망 주소**도 검사 대상으로 삼을지.
+ *
+ * 기본은 꺼짐. SSRF 방어를 푸는 설정이므로 두 조건을 모두 요구한다.
+ *   1) SPECTOTC_ALLOW_INTERNAL=1
+ *   2) 그 호스트가 SPECTOTC_LIVE_ALLOW_HOSTS 에 **명시**돼 있을 것
+ * 즉 "아무 내부 주소나" 가 아니라 "적어 둔 그 주소만" 열린다.
+ * 공개 URL 분석(/api/analyze-url)에는 적용되지 않는다 — 브라우저 탐색 경로 전용이다.
+ */
+function internalHostsAllowed() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.SPECTOTC_ALLOW_INTERNAL || ''));
+}
+
+/** 허용 목록에 적힌 호스트인지 (하위 도메인 포함) */
+function isListedHost(hostname) {
+  const host = String(hostname).toLowerCase();
+  return allowedHosts().some((h) => host === h || host.endsWith(`.${h}`));
+}
+
+/**
+ * 탐색 대상 주소를 검사한다. 공개 주소는 기존 규칙 그대로,
+ * 내부 주소는 위 두 조건을 모두 만족할 때만 통과시킨다.
+ */
+function assertCrawlTarget(rawUrl) {
+  try {
+    return normalizeUrl(rawUrl);
+  } catch (err) {
+    if (!internalHostsAllowed()) throw err;
+
+    let u;
+    try {
+      u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(rawUrl) ? rawUrl : `http://${rawUrl}`);
+    } catch {
+      throw err;
+    }
+    if (!/^https?:$/.test(u.protocol)) throw err;   // file:· ftp: 는 내부 허용과 무관하게 막는다
+    if (!isListedHost(u.hostname)) {
+      throw new Error(`내부망 주소는 SPECTOTC_LIVE_ALLOW_HOSTS 에 적어 둔 호스트만 열립니다: ${u.hostname}`);
+    }
+    return u;
+  }
+}
+
 /** playwright-core 가 설치돼 있는지 (optionalDependency 라 없을 수 있다) */
 function driver() {
   try {
@@ -139,7 +182,9 @@ function guardRequests(context) {
     if (!verdict.has(host)) {
       // 정적 분석과 **똑같은** 판정 로직을 쓴다. 두 경로의 방어 수준이 갈리면
       // 브라우저 경로가 우회로가 된다. (assertPublicHost 는 IP·DNS 를 모두 본다)
-      verdict.set(host, assertPublicHost(host).then(() => true, () => false));
+      verdict.set(host, internalHostsAllowed() && isListedHost(host)
+        ? Promise.resolve(true)
+        : assertPublicHost(host).then(() => true, () => false));
     }
 
     return (await verdict.get(host)) ? route.continue() : route.abort('blockedbyclient');
@@ -153,7 +198,7 @@ function guardRequests(context) {
  * @param {(page, ctx) => Promise<any>} fn
  */
 async function withPage(rawUrl, fn) {
-  const url = normalizeUrl(rawUrl); // 사설 IP·스킴 검사 (기존 방어 재사용)
+  const url = assertCrawlTarget(rawUrl); // 사설 IP·스킴 검사 (내부 허용은 명시한 호스트만)
 
   const browser = await launch();
   const consoleErrors = [];
@@ -218,6 +263,9 @@ async function settle(page) {
 
 module.exports = {
   withPage,
+  assertCrawlTarget,
+  internalHostsAllowed,
+  isListedHost,
   settle,
   browserEnabled,
   submitEnabled,

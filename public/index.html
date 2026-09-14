@@ -82,6 +82,49 @@
           <span id="browserBadge" class="badge badge-muted">브라우저 상태 확인 중…</span>
         </div>
 
+        <details class="site-crawl">
+          <summary class="wf-root-head">
+            <b>로그인해서 여러 화면 분석</b>
+            <span class="tag">선택</span>
+            <em>한 장이 아니라 링크를 따라가며 화면마다 세부 TC 를 만듭니다</em>
+          </summary>
+
+          <p class="sum-note">
+            로그인 정보를 넣으면 <b>로그인한 상태로</b> 돌아다니며 분석합니다.
+            자격 증명은 브라우저에 입력하는 데만 쓰이고 저장·기록되지 않으며 TC 에도 들어가지 않습니다.
+            <b>검증 권한이 있는 사이트에만</b> 사용하세요.
+          </p>
+
+          <div class="wf-field">
+            <span class="wf-field-name">아이디<em>비워두면 로그인 없이 탐색합니다</em></span>
+            <input id="siteUser" class="input" type="text" autocomplete="off" placeholder="테스트 계정 아이디" />
+          </div>
+          <div class="wf-field">
+            <span class="wf-field-name">비밀번호</span>
+            <input id="sitePass" class="input" type="password" autocomplete="off" placeholder="테스트 계정 비밀번호" />
+          </div>
+          <div class="wf-field">
+            <span class="wf-field-name">로그인 화면 주소<em>시작 주소와 다르면 지정</em></span>
+            <input id="siteLoginUrl" class="input" type="url" autocomplete="off" placeholder="예: https://shop.example.com/login" />
+          </div>
+          <div class="wf-field">
+            <span class="wf-field-name">탐색 범위</span>
+            <select id="siteScope" class="select">
+              <option value="6,1">빠르게 — 화면 6개 · 깊이 1</option>
+              <option value="10,2" selected>기본 — 화면 10개 · 깊이 2</option>
+              <option value="20,3">넓게 — 화면 20개 · 깊이 3 (오래 걸림)</option>
+            </select>
+          </div>
+
+          <div class="actions">
+            <button id="btnAnalyzeSite" class="btn btn-primary">로그인 후 사이트 탐색 → TC 생성</button>
+          </div>
+          <p class="sum-note">
+            로그아웃·삭제·탈퇴로 보이는 링크는 따라가지 않고 <b>수동 확인 TC</b> 로 남깁니다.
+            탐색 중에는 링크 이동만 하고 폼을 제출하지 않습니다(로그인 폼 제외).
+          </p>
+        </details>
+
         <div class="actions">
           <button id="btnAnalyzeUrl" class="btn btn-primary">화면 분석 후 TC 생성</button>
           <button id="btnUrlSample" class="btn">예시 주소</button>
