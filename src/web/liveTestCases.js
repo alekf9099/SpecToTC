@@ -14,6 +14,7 @@
 
 const {
   step, truncate, qa,
+  josa,
 } = require('../engine/generator');
 
 const TYPE_TAG = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
@@ -138,7 +139,7 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
     const handled = looksHandled(run);
 
     const inputSteps = run.filled.length
-      ? run.filled.map((f) => step('입력', qa(`${f.label} 에 ${f.value} 를 입력한다`)))
+      ? run.filled.map((f) => step('입력', qa(`${f.label}에 ${josa(f.value)} 입력한다`)))
       : [step('입력', qa('아무 값도 입력하지 않고 진행한다'))];
 
     emit(handled ? 'Pass' : 'Fail', area, {
@@ -150,9 +151,9 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         '헤드리스 브라우저로 실제 제출 (관측 시점 기준)',
       ],
       steps: [
-        step('진입', qa(`브라우저에서 ${run.before.url} 를 연다`)),
+        step('진입', qa(`브라우저에서 ${run.before.url} 주소를 연다`)),
         ...inputSteps,
-        step('실행', qa(`${run.submitAction} 으로 제출한다`)),
+        step('실행', qa(`${josa(run.submitAction, '으로')} 제출한다`)),
         step('확인', qa('이동한 주소와 결과 건수, 화면 안내 문구, 콘솔 오류를 확인한다')),
       ],
       expected: expectedFrom(run),
@@ -169,7 +170,7 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         objective: '자동화가 값을 넣지 못한 필드는 사람이 직접 확인해야 한다.',
         precondition: [`${host} 접속 가능`],
         steps: run.skipped.slice(0, 6).map((x) => step('확인', qa(
-          `${x.label || `필드 ${x.index}`} 에 값을 직접 입력해 동작을 확인한다 (자동 입력 실패 사유: ${x.reason})`,
+          `${x.label || `필드 ${x.index}`}에 값을 직접 입력해 동작을 확인한다 (자동 입력 실패 사유: ${x.reason})`,
         ))),
         expected: [
           'QA 가 해당 필드를 수동으로 입력해 정상 동작을 확인한다',
@@ -189,8 +190,8 @@ function buildLiveTestCases(inventory, runs, startIndex = 0) {
         objective: '제출 흐름에서 콘솔 오류나 스크립트 예외가 발생하지 않아야 한다.',
         precondition: [`${host} 접속 가능`, '개발자 도구 콘솔 열어둔 상태'],
         steps: [
-          step('진입', qa(`개발자 도구를 연 상태로 ${run.before.url} 에 진입한다`)),
-          step('실행', qa(`${run.label} 과 같은 값으로 제출한다`)),
+          step('진입', qa(`개발자 도구를 연 상태로 ${run.before.url}에 진입한다`)),
+          step('실행', qa(`${josa(run.label, '과')} 같은 값으로 제출한다`)),
           step('확인', qa('콘솔 탭의 오류 메시지를 확인한다')),
         ],
         expected: [

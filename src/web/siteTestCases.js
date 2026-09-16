@@ -17,6 +17,7 @@
 const { buildWebTestCases } = require('./webTestCases');
 const {
   step, truncate, qa, sys,
+  josa,
 } = require('../engine/generator');
 
 const TYPE_TAG = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
@@ -73,7 +74,7 @@ function loginCases(emit, crawl) {
     objective: '전달받은 계정으로 로그인이 완료되고 로그인 상태 화면으로 진입하는지 확인한다.',
     precondition: [`로그인 화면 접근 가능: ${at}`, `${CREDENTIAL_PLACEHOLDER} 준비`],
     steps: [
-      step('진입', qa(`브라우저에서 ${at} 를 연다`)),
+      step('진입', qa(`브라우저에서 ${at} 주소를 연다`)),
       step('입력', qa(`로그인 화면에 ${CREDENTIAL_PLACEHOLDER}의 아이디와 비밀번호를 입력한다`)),
       step('실행', qa('로그인 버튼을 누른다')),
       step('확인', qa('이동한 화면 주소와 로그아웃 메뉴 노출 여부를 확인한다')),
@@ -99,7 +100,7 @@ function loginCases(emit, crawl) {
     objective: '자격 증명이 틀렸을 때 로그인이 차단되고 사유가 안내되는지 확인한다.',
     precondition: [`로그인 화면 접근 가능: ${at}`],
     steps: [
-      step('진입', qa(`브라우저에서 ${at} 를 연다`)),
+      step('진입', qa(`브라우저에서 ${at} 주소를 연다`)),
       step('입력', qa('올바른 아이디와 틀린 비밀번호를 입력한다')),
       step('실행', qa('로그인 버튼을 누른다')),
       step('확인', qa('오류 문구와 잔여 시도 횟수 안내를 확인한다')),
@@ -200,9 +201,9 @@ function deepLinkCases(emit, crawl) {
       step('확인', qa('각 경우의 화면과 응답 코드를 확인한다')),
     ],
     expected: [
-      sys('404·오류 화면을 안내와 함께 보여준다 (빈 화면·무한 로딩 없음)'),
-      sys('다른 사용자 자원은 403 으로 차단하거나 목록으로 되돌린다'),
-      sys('서버 오류(5xx)나 스택 트레이스를 노출하지 않는다'),
+      sys('없는 페이지(404)나 오류 화면을 안내 문구와 함께 보여준다 — 빈 화면이나 끝나지 않는 로딩이 아니다'),
+      sys('다른 사용자 자원은 권한 없음(403)으로 막거나 목록으로 되돌린다'),
+      sys('서버 오류(5xx) 화면이나 내부 오류 로그를 사용자에게 그대로 보여주지 않는다'),
     ],
     evidence: `탐색 관측 · 대표 경로 ${list[0].path}`,
     priority: 'High',
@@ -221,7 +222,7 @@ function navigationCases(emit, crawl) {
     title: `메뉴·링크로 화면 이동 (${reached.length}개)`,
     objective: '메뉴에서 각 화면으로 이동하고 뒤로 가기로 되돌아오는지 확인한다.',
     precondition: ['로그인 완료 상태'],
-    steps: reached.slice(0, 10).map((p) => step('이동', qa(`메뉴에서 "${p.viaLabel}" 을 눌러 ${p.name}(${p.path}) 으로 이동한다`)))
+    steps: reached.slice(0, 10).map((p) => step('이동', qa(`메뉴에서 "${p.viaLabel}" 버튼을 눌러 ${p.name} 화면(${p.path})으로 이동한다`)))
       .concat(step('확인', qa('각 이동 결과와 뒤로 가기 복귀, 메뉴의 현재 위치 표시를 확인한다'))),
     expected: [
       sys('각 링크에서 의도한 화면으로 이동시킨다'),
@@ -239,7 +240,7 @@ function navigationCases(emit, crawl) {
       title: `자동 탐색에서 제외한 링크 수동 확인 (${crawl.skippedLinks.length}개)`,
       objective: '되돌릴 수 없는 동작이라 자동으로 눌러보지 않은 링크를 사람이 확인한다.',
       precondition: ['데이터 복구 방법 확보 후 진행'],
-      steps: crawl.skippedLinks.slice(0, 8).map((x) => step('확인', qa(`"${x.label || x.url}" 를 직접 눌러 동작을 확인한다 (${x.reason})`))),
+      steps: crawl.skippedLinks.slice(0, 8).map((x) => step('확인', qa(`"${x.label || x.url}" 항목을 직접 눌러 동작을 확인한다 (${x.reason})`))),
       expected: [
         sys('각 동작 전에 확인 단계를 보여준다'),
         sys('실행한 뒤 되돌릴 수 있는 수단(Undo·복구)을 제공한다'),

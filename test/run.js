@@ -20,6 +20,21 @@ const test = (name, fn) => tests.push({ name, fn });
 
 /* ------------------------------------------------------------- parser */
 
+/**
+ * 수행 단계는 **QA 가 할 수 있는 행동**이어야 한다.
+ *
+ * 한동안 "QA 는" 이라는 주어가 붙어 있는지로 검사했지만, 그 주어는 모든 줄에
+ * 똑같이 붙는 군더더기라 읽기만 나빠져서 뺐다. 실제로 막아야 하는 것은
+ * "실행: 홈 화면으로 이동하고 액세스 토큰을 저장한다" 처럼 **시스템이 하는 일**이
+ * 수행 단계에 들어오는 경우다. 그것만 검사한다.
+ */
+function assertQaStep(line, where) {
+  const body = String(line).replace(/^[^:]+:\s*/, '');
+  assert.ok(body.length > 0, `${where}: 단계 내용이 비었다 — ${line}`);
+  assert.ok(!/^시스템은/.test(body), `${where}: 수행 단계에 시스템 동작이 들어갔다 — ${line}`);
+  assert.match(body, /(다|한다|확인한다|누른다|연다)\s*$|\)\s*$|[다]\s*[(（]/, `${where}: 단계가 행동 문장이 아니다 — ${line}`);
+}
+
 test('경계값 표현을 파싱한다 (한글)', () => {
   const c = extractConstraints('비밀번호는 8자 이상 20자 이하로 입력해야 한다.');
   assert.ok(c.some((x) => x.value === 8 && x.op === '>=' && x.unit === '글자'), '8자 이상');
@@ -716,10 +731,10 @@ test('인벤토리에서 TC 를 만든다 (기획서 TC 와 같은 구조)', () 
   const boundary = tcs.find((t) => t.tags.includes('boundary') && /비밀번호/.test(t.title));
   assert.ok(boundary, '비밀번호 경계 TC 없음');
   const joined = boundary.expected.join(' ');
-  assert.ok(/20 입력 시 허용/.test(joined) && /21 입력 시 거부/.test(joined), joined);
-  // 기대 결과의 주어는 시스템, 수행 단계의 주어는 QA
+  assert.ok(/20을 넣으면 받아들이고/.test(joined) && /21을 넣으면 거부/.test(joined), joined);
+  // 기대 결과의 주어는 시스템, 수행 단계는 QA 가 할 수 있는 행동
   assert.ok(boundary.expected.every((e) => e.startsWith('시스템은')), boundary.expected.join(' | '));
-  assert.ok(boundary.steps.every((s) => s.includes('QA 는')), boundary.steps.join(' | '));
+  boundary.steps.forEach((s) => assertQaStep(s, 'boundary'));
 });
 
 test('화면 분석 요약은 기획서 요약과 같은 형태를 채운다', () => {
@@ -905,8 +920,8 @@ test('관측 결과 → TC — 기대 결과에 실측값이 들어가고 판단
   assert.match(expected, /QA 가 판단/);
 
   // 수행 단계에 실제로 넣은 값이 있어야 재현할 수 있다 (주어·목적어를 갖춘 문장으로)
-  assert.match(tc.steps.join(' '), /검색어 에 자동차 를 입력한다/);
-  assert.ok(tc.steps.every((s) => s.includes('QA 는')), tc.steps.join(' | '));
+  assert.match(tc.steps.join(' '), /검색어에 자동차를 입력한다/);
+  tc.steps.forEach((s) => assertQaStep(s, 'live'));
 });
 
 test('관측 결과 → TC — 오류가 관측되면 Fail 로 분류하고 별도 TC 를 만든다', () => {
@@ -1593,17 +1608,17 @@ test('TC 상세 — 수행 단계는 QA 의 행동, 기대 결과는 시스템�
   const { testCases } = generateFromSpec(SAMPLE);
   const pass = testCases.find((tc) => tc.type === 'Pass');
 
-  assert.ok(pass.steps.every((s) => s.includes('QA 는')), `수행 단계에 주어가 없다: ${pass.steps.join(' | ')}`);
+  pass.steps.forEach((s) => assertQaStep(s, 'Pass'));
   assert.ok(pass.expected.some((e) => e.startsWith('시스템은')), `기대 결과에 주어가 없다: ${pass.expected.join(' | ')}`);
 
   // 단계에는 대상(화면)이 들어간다
   assert.match(pass.steps[0], /화면에 진입한다/);
 
-  // 모든 TC 의 모든 단계가 "레이블: QA 는 …" 형태
+  // 모든 TC 의 모든 단계가 "레이블: QA 가 할 수 있는 행동" 형태
   testCases.forEach((tc) => {
     tc.steps.forEach((s) => {
       assert.match(s, /^[^:]+: /, `단계에 레이블이 없다: ${s}`);
-      assert.ok(s.includes('QA 는'), `${tc.tc_id} 단계에 주어가 없다: ${s}`);
+      assertQaStep(s, tc.tc_id);
     });
   });
 });
@@ -1696,17 +1711,41 @@ test('모든 생성 경로 — 수행 단계의 주어는 QA, 생략 부호 없�
     '실행 검증': buildLiveTestCases({ page: { url: 'https://shop.example.com/' } }, [run]),
   };
 
+  // TC 를 실제로 읽는 사람은 기획서를 안 본 QA 다. 세 가지가 읽기를 막았다.
+  //   1) 줄마다 반복되는 "QA 는" — 수행 단계는 전부 QA 의 행동이라 정보가 0 이다
+  //   2) "비밀번호 에", "4초 을" — 값을 문장에 끼워 넣으면서 조사를 고정으로 적어 생긴 오류
+  //   3) "멱등", "유령 데이터", 맨숫자 상태 코드처럼 설명 없이 나오는 개발 용어
+  const DANGLING_JOSA = /[가-힣0-9)"] (을|를|이|가|은|는|에|의|으로|과|와)( |$)/;
+  const JARGON = ['멱등', '유령 데이터', '스로틀링', '스택 트레이스'];
+  const BARE_STATUS = /(?<![(\d])(401|403|404|500)/;
+  const EXPLAINED = /[가-힣]+\((?:[0-9·]|5xx)/;
+
   Object.entries(paths).forEach(([name, tcs]) => {
     assert.ok(tcs.length > 0, `${name}: TC 가 없다`);
 
     tcs.forEach((tc) => {
+      const at = `${name} / ${tc.tc_id}`;
+
       // 수행 단계는 QA 가 하는 행동이어야 한다
-      (tc.steps || []).forEach((s) => {
-        assert.ok(s.includes('QA 는'), `${name} / ${tc.tc_id}: 단계에 주어가 없다 — ${s}`);
-      });
+      (tc.steps || []).forEach((s) => assertQaStep(s, at));
 
       // CSV·PDF 는 읽고 실행하는 문서다. 중간이 끊기면 안 된다
-      assert.ok(!JSON.stringify(tc).includes('…'), `${name} / ${tc.tc_id}: 생략 부호가 남았다`);
+      assert.ok(!JSON.stringify(tc).includes('…'), `${at}: 생략 부호가 남았다`);
+
+      [tc.title, tc.objective]
+        .concat(tc.precondition || [], tc.steps || [], tc.expected || [])
+        .filter(Boolean)
+        .forEach((line) => {
+          assert.ok(!/QA 는/.test(line), `${at}: 군더더기 주어가 남았다 — ${line}`);
+          assert.ok(!DANGLING_JOSA.test(line), `${at}: 조사 앞에 공백이 남았다 — ${line}`);
+          JARGON.forEach((word) => {
+            assert.ok(!line.includes(word), `${at}: 풀어 쓰지 않은 개발 용어 "${word}" — ${line}`);
+          });
+          assert.ok(
+            !BARE_STATUS.test(line) || EXPLAINED.test(line),
+            `${at}: 상태 코드에 뜻이 안 적혀 있다 — ${line}`,
+          );
+        });
     });
   });
 });

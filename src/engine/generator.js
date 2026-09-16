@@ -50,22 +50,64 @@ function screenOf(req) {
 }
 
 /**
- * 수행 단계와 기대 결과의 주어를 분리한다.
+ * 수행 단계와 기대 결과를 구분한다.
  *
  * 처음에는 요구사항의 동작절을 그대로 `실행:` 단계에 넣었다. 그런데 동작절은
  * **시스템이 하는 일**이다. "실행: 홈 화면으로 이동하고, 액세스 토큰을 저장한다" 는
  * QA 가 할 수 있는 행동이 아니다. 읽는 사람이 무엇을 해야 하는지 알 수 없다.
  *
- *   수행 단계 → 주어는 QA. "QA 는 로그인 화면에서 로그인 버튼을 누른다"
- *   기대 결과 → 주어는 시스템. "시스템은 홈 화면으로 이동하고 액세스 토큰을 저장한다"
+ *   수행 단계 → QA 가 하는 행동.   "로그인 화면에서 로그인 버튼을 누른다"
+ *   기대 결과 → 시스템이 하는 일.  "시스템은 홈 화면으로 이동하고 액세스 토큰을 저장한다"
+ *
+ * 한동안 수행 단계에도 "QA 는" 을 붙였지만, 수행 단계 칸에 적히는 행동은 **전부**
+ * QA 가 하는 일이라 매 줄 반복되는 주어는 정보가 0 이고 읽는 속도만 떨어뜨렸다.
+ * 반대로 기대 결과의 "시스템은" 은 남긴다. 거기서는 "내가 확인하는 것"과
+ * "시스템이 하는 것"이 실제로 헷갈리기 때문이다.
  */
-const qa = (body) => `QA 는 ${clean(body)}`;
+const qa = (body) => clean(body);
 const sys = (body) => `시스템은 ${clean(body)}`;
+
+/**
+ * 단어 뒤에 맞는 조사를 붙인다 — "비밀번호 에", "4초 을" 같은 어색한 문구를 막는다.
+ *
+ * 생성기는 화면 이름·필드 라벨·숫자를 문장에 끼워 넣는데, 그 값은 실행할 때까지
+ * 모른다. 그래서 `${label} 을` 처럼 조사를 고정으로 적어 두면 절반은 틀린다.
+ * 받침 유무를 보고 고르고, 띄어쓰기도 여기서 없앤다.
+ */
+const JOSA = {
+  '을': ['을', '를'], '이': ['이', '가'], '은': ['은', '는'],
+  '과': ['과', '와'], '으로': ['으로', '로'], '이나': ['이나', '나'],
+};
+
+function josa(word, kind = '을') {
+  const s = String(word == null ? '' : word).trim();
+  const [withFinal, withoutFinal] = JOSA[kind] || [kind, kind];
+  if (!s) return s;
+
+  const last = s.codePointAt(s.length - 1);
+  let hasFinal;
+  if (last >= 0xac00 && last <= 0xd7a3) {
+    const jong = (last - 0xac00) % 28;
+    // ㄹ 받침은 "으로/로" 에서만 받침 없는 쪽을 쓴다 (예: 서울로).
+    hasFinal = kind === '으로' ? jong !== 0 && jong !== 8 : jong !== 0;
+  } else if (/[0-9]$/.test(s)) {
+    hasFinal = '0136780'.includes(s.slice(-1));
+  } else if (/[A-Za-z]$/.test(s)) {
+    // 영문은 마지막 글자를 한글로 읽었을 때 받침이 남는지로 고른다 (ID→아이디, URL→유알엘).
+    hasFinal = 'flmnrsx'.includes(s.slice(-1).toLowerCase());
+  } else {
+    hasFinal = true;
+  }
+  return `${s}${hasFinal ? withFinal : withoutFinal}`;
+}
+
+/** 목적어 + 을/를 — 가장 많이 쓰는 형태라 이름을 따로 둔다. */
+const withObject = (value) => josa(value, '을');
 
 function basePrecondition(req, extra) {
   const screen = screenOf(req);
   const items = [`${screen} 화면에 접근할 수 있는 테스트 계정과 데이터가 준비되어 있다`];
-  if (req.condition) items.push(`선행 조건: ${clean(req.condition)} 상태를 만들 수 있다`);
+  if (req.condition) items.push(`${clean(req.condition)} 상태를 만들 수 있다`);
   if (extra) items.push(extra);
   return items;
 }
@@ -75,8 +117,8 @@ function entrySteps(req) {
   const screen = screenOf(req);
   const steps = [step('진입', qa(`${screen} 화면에 진입한다`))];
   steps.push(req.condition
-    ? step('조건 설정', qa(`${clean(req.condition)} 상태를 만든다`))
-    : step('입력', qa(`${screen} 화면의 입력 항목에 명세에 정의된 정상 값을 입력한다`)));
+    ? step('조건 설정', qa(`${clean(req.condition)} 상태로 만든다`))
+    : step('입력', qa(`${screen} 화면의 입력 항목을 기획서에 적힌 정상 값으로 채운다`)));
   return steps;
 }
 
@@ -98,6 +140,9 @@ function formatCriterion(c) {
 
 const OP_TEXT = { '>=': '이상', '<=': '이하', '>': '초과', '<': '미만' };
 
+const ACCEPT = '받아들이고 정상 처리한다';
+const REJECT = '거부하고 안내 문구를 표시한다';
+
 /** 경계값 3점(내부/경계/외부)과 각 기대 판정 */
 function boundaryPoints(c) {
   const d = delta(c.value);
@@ -106,9 +151,9 @@ function boundaryPoints(c) {
   const atBoundaryPasses = c.op === '>=' || c.op === '<=';
 
   return [
-    { value: outside[c.op], verdict: '거부 + 유효성 안내', label: '경계 외부', pass: false },
-    { value: c.value, verdict: atBoundaryPasses ? '허용 + 정상 처리' : '거부 + 유효성 안내', label: '경계 정확값', pass: atBoundaryPasses },
-    { value: inside[c.op], verdict: '허용 + 정상 처리', label: '경계 내부', pass: true },
+    { value: outside[c.op], verdict: REJECT, label: '기준을 벗어난 값', pass: false },
+    { value: c.value, verdict: atBoundaryPasses ? ACCEPT : REJECT, label: '기준 딱 그 값', pass: atBoundaryPasses },
+    { value: inside[c.op], verdict: ACCEPT, label: '기준 안쪽 값', pass: true },
   ];
 }
 
@@ -120,17 +165,17 @@ function passCases(req) {
 
   const cases = [{
     title: req.condition ? `${clean(req.condition)} → ${action}` : action,
-    objective: `${screen} 화면에서 요구사항에 정의된 정상 흐름이 명세대로 동작하는지 확인한다.`,
+    objective: `${screen} 화면에서 기획서에 적힌 "${action}" 동작이 그대로 되는지 확인한다.`,
     precondition: basePrecondition(req),
     steps: [
       ...entrySteps(req),
-      step('실행', qa(`${screen} 화면에서 해당 기능을 실행한다 (기대 동작: ${action})`)),
-      step('확인', qa('화면에 표시된 결과와 서버 응답을 확인한다')),
+      step('실행', qa(`${screen} 화면의 실행 버튼(저장·제출·확인 등)을 누른다`)),
+      step('확인', qa('화면에 나온 결과를 보고, 개발자 도구 네트워크 탭에서 응답 코드를 확인한다')),
     ],
     expected: [
       sys(action),
-      '화면에 오류 문구나 경고 알럿이 표시되지 않는다',
-      '서버가 2xx 로 응답한다',
+      '화면에 오류 문구나 경고 팝업이 뜨지 않는다',
+      '서버가 정상 응답(200번대)을 준다',
     ],
     tags: ['happy-path'],
   }];
@@ -142,7 +187,7 @@ function passCases(req) {
       precondition: basePrecondition(req, `${screen} 기능이 정상 처리로 1회 완료된 상태다`),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
-        step('실행', qa(`해당 기능을 실행해 상태를 저장한다 (기대 동작: ${action})`)),
+        step('실행', qa(`${screen} 화면의 실행 버튼을 눌러 처리를 끝까지 완료한다`)),
         step('조작', qa('브라우저를 새로고침하거나 앱을 다시 실행한다')),
         step('확인', qa(`${screen} 화면에 다시 진입해 이전 상태가 남아 있는지 확인한다`)),
       ],
@@ -161,7 +206,7 @@ function passCases(req) {
       precondition: basePrecondition(req, '알림 수신 채널(푸시·메일·SMS)이 활성화된 수신 계정이 준비되어 있다'),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
-        step('실행', qa(`알림을 유발하는 기능을 실행한다 (기대 동작: ${action})`)),
+        step('실행', qa(`${screen} 화면에서 알림이 나가는 동작(저장·제출·완료 등)을 실행한다`)),
         step('확인', qa('수신 계정의 수신함(푸시·메일·SMS)에서 알림 도착 여부와 문구를 확인한다')),
       ],
       expected: [
@@ -191,7 +236,7 @@ const FAIL_RECIPES = [
     expected: [
       sys('요청을 차단하고 저장하지 않는다'),
       sys('값이 잘못된 필드마다 유효성 오류 문구를 표시한다'),
-      sys('서버로 요청을 보내지 않거나, 보냈다면 400 으로 응답한다'),
+      sys('서버로 요청을 아예 보내지 않거나, 보냈다면 잘못된 요청(400)으로 응답한다'),
     ],
   },
   {
@@ -201,13 +246,13 @@ const FAIL_RECIPES = [
     steps: (screen) => [
       step('상태', qa('로그아웃하거나, 해당 기능 권한이 없는 계정으로 로그인한다')),
       step('실행', qa(`${screen} 화면에 진입을 시도한다`)),
-      step('실행', qa(`만료된 토큰으로 ${screen} 기능의 API 를 직접 호출한다`)),
+      step('실행', qa(`개발자 도구 네트워크 탭에서 ${screen} 요청 주소를 복사해, 만료된 토큰으로 그대로 다시 호출한다`)),
       step('확인', qa('화면 노출 여부와 응답 코드를 확인한다')),
     ],
     expected: [
-      sys('기능을 노출하지 않거나 401·403 으로 응답한다'),
+      sys('기능을 아예 보여주지 않거나, 권한 없음(401·403)으로 응답한다'),
       sys('로그인 화면이나 권한 안내 화면으로 이동시킨다'),
-      sys('API 직접 호출로도 우회 접근을 허용하지 않는다'),
+      sys('화면을 거치지 않고 API 를 직접 불러도 막는다'),
     ],
   },
   {
@@ -242,7 +287,7 @@ const FAIL_RECIPES = [
   {
     key: 'NOTIFICATION',
     title: '알림 발송 실패',
-    objective: (screen) => `알림 발송이 실패해도 ${screen} 의 주요 흐름이 중단되지 않는지 확인한다.`,
+    objective: (screen) => `알림 발송이 실패해도 ${screen}의 주요 흐름이 중단되지 않는지 확인한다.`,
     steps: (screen) => [
       step('준비', qa('수신 채널을 차단하거나 잘못된 수신처로 설정한다')),
       step('실행', qa(`${screen} 화면에서 알림 발송을 유발하는 동작을 수행한다`)),
@@ -256,7 +301,7 @@ const FAIL_RECIPES = [
   {
     key: 'DESTRUCTIVE',
     title: '삭제 취소 / 권한 없는 삭제',
-    objective: (screen) => `${screen} 의 되돌릴 수 없는 동작이 의도 없이 실행되지 않는지 확인한다.`,
+    objective: (screen) => `${screen}의 되돌릴 수 없는 동작이 의도 없이 실행되지 않는지 확인한다.`,
     steps: (screen) => [
       step('실행', qa(`${screen} 화면에서 삭제를 누른 뒤 확인 팝업에서 취소를 선택한다`)),
       step('실행', qa('권한이 없는 계정으로 같은 삭제 API 를 직접 호출한다')),
@@ -264,7 +309,7 @@ const FAIL_RECIPES = [
     ],
     expected: [
       sys('취소했을 때 데이터를 삭제하지 않고 원래 상태를 유지한다'),
-      sys('권한 없는 호출을 403 으로 차단한다'),
+      sys('권한 없는 호출을 권한 없음(403)으로 막는다'),
     ],
   },
   {
@@ -279,7 +324,7 @@ const FAIL_RECIPES = [
     expected: [
       sys('중간 상태를 확정하지 않는다'),
       sys('명세된 이탈 처리(임시저장·롤백·안내)를 수행한다'),
-      sys('처리되지 않은 유령 데이터를 남기지 않는다'),
+      sys('처리가 끝나지 않은 찌꺼기 데이터를 남기지 않는다'),
     ],
   },
   {
@@ -287,12 +332,12 @@ const FAIL_RECIPES = [
     title: '서버 오류(5xx) 응답',
     objective: (screen) => `서버 장애 상황에서 ${screen} 화면이 안전하게 실패하는지 확인한다.`,
     steps: (screen) => [
-      step('준비', qa('서버가 500 을 반환하도록 목(mock)이나 프록시로 설정한다')),
+      step('준비', qa('서버가 500(서버 오류)을 주도록 가짜 응답(mock)이나 프록시로 설정한다')),
       step('실행', qa(`${screen} 화면에서 같은 동작을 다시 수행한다`)),
       step('확인', qa('화면 상태와 안내 문구, 재시도 수단을 확인한다')),
     ],
     expected: [
-      sys('앱이 죽거나 무한 로딩에 빠지지 않는다'),
+      sys('앱이 멈추거나 로딩이 끝나지 않는 상태가 되지 않는다'),
       sys('오류 안내 문구를 표시한다'),
       sys('사용자가 다시 시도할 수 있는 수단을 제공한다'),
     ],
@@ -312,7 +357,7 @@ function failCases(req, limit) {
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
         step('조건 설정', qa(`${clean(req.condition)} 조건을 불충족 상태로 만든다`)),
-        step('실행', qa(`${screen} 화면에서 해당 기능을 실행한다`)),
+        step('실행', qa(`${screen} 화면의 실행 버튼(저장·제출·확인 등)을 누른다`)),
         step('확인', qa('동작 수행 여부와 안내 문구, 데이터 변경 여부를 확인한다')),
       ],
       expected: [
@@ -351,7 +396,7 @@ function failCases(req, limit) {
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
         step('준비', qa('개발자 도구나 프록시로 네트워크를 차단한다')),
-        step('실행', qa(`${screen} 화면에서 해당 기능을 실행한다 (기대 동작: ${action})`)),
+        step('실행', qa(`${screen} 화면의 실행 버튼(저장·제출·확인 등)을 누른다`)),
         step('확인', qa('로딩 상태와 안내 문구, 재시도 수단을 확인한다')),
       ],
       expected: [
@@ -377,15 +422,16 @@ function edgeCases(req, limit) {
     const points = boundaryPoints(c);
     const criterion = `${fmt(c.value, c.unit)} ${OP_TEXT[c.op] || c.op}`;
     cases.push({
-      title: `경계값 ${criterion} 전후 판정`,
-      objective: `${screen} 화면에서 기준값 ${criterion} 의 경계 앞뒤로 허용·거부 판정이 정확한지 확인한다.`,
-      precondition: basePrecondition(req, `판정 기준: ${criterion} (기획서 표현 "${clean(c.source)}")`),
+      title: `${criterion} 기준 앞뒤 값 확인`,
+      objective: `${screen} 화면에서 "${clean(c.source)}" 기준의 바로 앞·딱 그 값·바로 뒤를 넣었을 때 통과/거부가 맞게 갈리는지 확인한다.`,
+      precondition: basePrecondition(req, `기준값은 ${criterion}다 (기획서 표현: "${clean(c.source)}")`),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
-        ...points.map((p) => step('입력', qa(`해당 항목에 ${fmt(p.value, c.unit)} 을 입력하고 제출한다 — ${p.label}`))),
-        step('확인', qa('세 값 각각의 허용·거부 결과와 안내 문구를 확인한다')),
+        ...points.map((p) => step('입력', qa(
+          `${p.label}인 ${withObject(fmt(p.value, c.unit))} 넣고 제출한다`))),
+        step('확인', qa('세 번 각각 통과했는지 거부됐는지, 거부됐다면 어떤 문구가 떴는지 확인한다')),
       ],
-      expected: points.map((p) => sys(`${fmt(p.value, c.unit)} 입력 시 ${p.verdict}`)),
+      expected: points.map((p) => sys(`${withObject(fmt(p.value, c.unit))} 넣으면 ${p.verdict}`)),
       tags: ['boundary'],
     });
   }
@@ -395,7 +441,7 @@ function edgeCases(req, limit) {
     cases.push({
       title: `재시도 ${n}회 소진 및 초과 동작`,
       objective: `재시도 상한 ${n}회가 지켜지고 소진 후 최종 실패 처리가 되는지 확인한다.`,
-      precondition: basePrecondition(req, '서버가 실패 응답을 반환하도록 강제할 수 있는 목(mock) 환경이 준비되어 있다'),
+      precondition: basePrecondition(req, '서버가 실패 응답을 주도록 강제할 수 있는 가짜 응답(mock) 환경이 준비되어 있다'),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
         step('실행', qa(`서버가 ${Math.max(1, n - 1)}회까지 실패하고 다음 시도에서 성공하도록 설정한 뒤 기능을 실행한다`)),
@@ -413,14 +459,14 @@ function edgeCases(req, limit) {
     cases.push({
       title: '재시도 정책 상한 확인 (기획 미정의)',
       objective: '기획서에 재시도 상한이 명시되지 않아 실제 동작을 계측하고 기준을 확정한다.',
-      precondition: basePrecondition(req, '서버가 실패 응답을 반복 반환하도록 강제할 수 있는 목(mock) 환경이 준비되어 있다'),
+      precondition: basePrecondition(req, '서버가 실패 응답을 계속 주도록 강제할 수 있는 가짜 응답(mock) 환경이 준비되어 있다'),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
         step('실행', qa('서버가 계속 실패하도록 설정한 뒤 기능을 실행한다')),
         step('확인', qa('네트워크 로그에서 재시도 호출 횟수와 간격을 계측한다')),
       ],
       expected: [
-        sys('어떤 상한에서 재시도를 멈춘다 (계측한 값을 기록한다)'),
+        sys('어느 횟수에서든 재시도를 멈춘다 — 실제로 몇 번인지 세어서 적는다'),
         '기획서에 상한이 없으므로 계측값을 기획 확인 항목으로 올린다',
       ],
       tags: ['retry', 'spec-gap'],
@@ -431,11 +477,11 @@ function edgeCases(req, limit) {
     cases.push({
       title: '저속 네트워크/응답 지연 시 동작',
       objective: '응답이 느릴 때 로딩 상태 유지와 중복 요청 방지가 되는지 확인한다.',
-      precondition: basePrecondition(req, '개발자 도구로 3G 수준의 네트워크 스로틀링을 걸 수 있다'),
+      precondition: basePrecondition(req, '개발자 도구에서 네트워크 속도를 3G 수준으로 낮출 수 있다'),
       steps: [
         step('준비', qa('개발자 도구에서 네트워크 속도를 3G 수준으로 제한한다')),
         step('진입', qa(`${screen} 화면에 진입한다`)),
-        step('실행', qa(`해당 기능을 실행한다 (기대 동작: ${action})`)),
+        step('실행', qa(`${screen} 화면의 실행 버튼(저장·제출·확인 등)을 누른다`)),
         step('확인', qa('로딩 표시 유지 여부와 같은 요청이 중복으로 나갔는지 네트워크 로그에서 확인한다')),
       ],
       expected: [
@@ -481,7 +527,7 @@ function edgeCases(req, limit) {
       ],
       expected: [
         sys('명세된 이탈 정책(임시저장 또는 초기화)을 일관되게 적용한다'),
-        sys('같은 처리를 중복 수행하거나 유령 데이터를 남기지 않는다'),
+        sys('같은 처리를 두 번 하거나 찌꺼기 데이터를 남기지 않는다'),
       ],
       tags: ['abort'],
     });
@@ -490,16 +536,16 @@ function edgeCases(req, limit) {
   if (!cases.length) {
     cases.push({
       title: '연속 중복 실행(따닥) 및 처리 중 새로고침',
-      objective: `${screen} 화면에서 같은 요청이 여러 번 들어와도 멱등하게 처리되는지 확인한다.`,
+      objective: `${screen} 화면에서 버튼을 여러 번 눌러도 결과가 한 번 누른 것과 같은지 확인한다.`,
       precondition: basePrecondition(req),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
-        step('실행', qa(`실행 버튼을 1초 안에 3회 연속으로 누른다 (기대 동작: ${action})`)),
+        step('실행', qa('실행 버튼을 1초 안에 3번 연속으로 누른다')),
         step('실행', qa('처리가 끝나기 전에 새로고침하거나 뒤로 가기를 누른다')),
         step('확인', qa('생성된 데이터 건수와 발송된 알림 건수를 확인한다')),
       ],
       expected: [
-        sys('요청을 1건만 처리하거나 멱등하게 처리한다'),
+        sys('여러 번 눌러도 한 번 누른 것과 같은 결과만 만든다'),
         sys('데이터나 알림을 중복으로 만들지 않는다'),
       ],
       tags: ['idempotency'],
@@ -622,5 +668,5 @@ module.exports = {
   TYPE, clean, truncate, step, LABELS, WEIGHTS, fmt, formatCriterion,
   // 웹·사이트·실행 검증 생성기도 같은 문구 규칙을 쓴다
   // (수행 단계의 주어는 QA, 기대 결과의 주어는 시스템)
-  qa, sys,
+  qa, sys, josa, withObject,
 };

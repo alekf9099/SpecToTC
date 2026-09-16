@@ -10,6 +10,7 @@
  */
 const {
   step, truncate, qa, sys,
+  josa,
 } = require('../engine/generator');
 
 const TYPE_TAG = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
@@ -110,12 +111,12 @@ function buildWebTestCases(inventory, options = {}) {
     objective: '페이지가 오류 없이 렌더되고 주요 영역이 표시되는지 확인한다.',
     precondition: base,
     steps: [
-      step('진입', qa(`브라우저에서 ${inventory.page.url} 를 연다`)),
+      step('진입', qa(`브라우저에서 ${inventory.page.url} 주소를 연다`)),
       step('확인', qa('개발자 도구 콘솔의 오류, 깨진 이미지, 레이아웃 붕괴 여부를 확인한다')),
       step('확인', qa(`화면 상단에 주요 제목이 표시되는지 확인한다 (기대: ${(inventory.structure.headings[0] || {}).text || '제목'})`)),
     ],
     expected: [
-      sys('200 으로 응답하고 화면을 렌더한다'),
+      sys('정상 응답(200)을 주고 화면을 그린다'),
       '개발자 도구 콘솔에 오류가 남지 않는다',
       sys('주요 영역을 정상 표시한다'),
     ],
@@ -142,8 +143,8 @@ function buildWebTestCases(inventory, options = {}) {
         .concat(form.condition ? [`선행 조건 — ${form.condition}`] : []),
       steps: [
         ...(form.condition ? [step('조건 설정', qa(`${form.condition} 상태를 만든다`))] : []),
-        step('입력', qa(`${form.name} 의 각 항목에 유효한 값을 입력한다 — ${validInputStep(form)}`)),
-        step('실행', qa(form.submits[0] ? `"${form.submits[0]}" 버튼을 누른다` : `${form.name} 을 제출한다`)),
+        step('입력', qa(`${form.name}의 각 항목을 다음 값으로 채운다 (${validInputStep(form)})`)),
+        step('실행', qa(form.submits[0] ? `"${form.submits[0]}" 버튼을 누른다` : `${josa(form.name)} 제출한다`)),
         step('확인', qa('결과 화면과 서버 응답, 저장된 값을 확인한다')),
       ],
       expected: [
@@ -166,14 +167,14 @@ function buildWebTestCases(inventory, options = {}) {
         precondition: base.concat(form.condition ? [`선행 조건 — ${form.condition}`] : []),
         steps: [
           ...(form.condition ? [step('조건 설정', qa(`${form.condition} 상태를 만든다`))] : []),
-          step('입력', qa(`필수 항목을 공백으로 둔다 — ${required.map((x) => x.label).join(', ')}`)),
-          step('실행', qa(`${form.name} 을 제출한다`)),
+          step('입력', qa(`필수 항목(${required.map((x) => x.label).join(', ')})을 모두 비워 둔다`)),
+          step('실행', qa(`${josa(form.name)} 제출한다`)),
           step('확인', qa('제출 차단 여부와 오류 문구가 표시된 위치를 확인한다')),
         ],
         expected: [
           sys('제출을 차단한다'),
           sys('비어 있는 필드마다 오류를 안내한다'),
-          sys('서버로 요청을 보내지 않거나, 보냈다면 400 으로 응답한다'),
+          sys('서버로 요청을 아예 보내지 않거나, 보냈다면 잘못된 요청(400)으로 응답한다'),
         ],
         evidence: `${evidence} · required: ${required.map((f) => f.name || f.label).join(', ')}`,
         evidenceId,
@@ -187,8 +188,8 @@ function buildWebTestCases(inventory, options = {}) {
         objective: 'HTML 에 required 표기가 없어, 빈 값 제출 시 서버가 어떻게 처리하는지 확인한다.',
         precondition: base,
         steps: [
-          step('입력', qa(`${form.name} 의 모든 필드를 비운다`)),
-          step('실행', qa(`${form.name} 을 제출한다`)),
+          step('입력', qa(`${form.name}의 모든 필드를 비운다`)),
+          step('실행', qa(`${josa(form.name)} 제출한다`)),
           step('확인', qa('제출이 차단되는지, 아니면 빈 값으로 저장되는지 확인한다')),
         ],
         expected: ['서버가 검증해 오류를 안내하거나, 정책상 허용되는지 확인', '무응답·크래시 없음'],
@@ -205,11 +206,11 @@ function buildWebTestCases(inventory, options = {}) {
       emit('Fail', area, {
         title: `선행 조건 미충족(${truncate(form.condition, 28)} 아님) 상태에서 제출`,
         objective: 'QA 가 지정한 선행 조건이 실제로 강제되는지 확인한다.',
-        precondition: base.concat(`${form.condition} 을 의도적으로 불충족 상태로 설정`),
+        precondition: base.concat(`${josa(form.condition)} 의도적으로 불충족 상태로 만든다`),
         steps: [
           step('조건 설정', qa(`${form.condition} 조건을 불충족 상태로 만든다`)),
-          step('입력', qa(`${form.name} 의 각 항목에 유효한 값을 입력한다 — ${validInputStep(form)}`)),
-          step('실행', qa(`${form.name} 을 제출한다`)),
+          step('입력', qa(`${form.name}의 각 항목을 다음 값으로 채운다 (${validInputStep(form)})`)),
+          step('실행', qa(`${josa(form.name)} 제출한다`)),
           step('확인', qa('제출 차단 여부와 안내 문구, 데이터 변경 여부를 확인한다')),
         ],
         expected: ['제출이 차단되거나 접근 자체가 막힘', '사유 안내', '데이터 변경 없음'],
@@ -228,7 +229,7 @@ function buildWebTestCases(inventory, options = {}) {
         title: `QA 지정 형식 규칙 위반 (${ruled.length}개 필드)`,
         objective: '페이지 HTML 에는 없지만 실제로 적용돼야 하는 규칙이 지켜지는지 확인한다.',
         precondition: base,
-        steps: ruled.map((x) => step('입력', qa(`${x.label} 에 규칙을 어기는 값을 입력하고 제출한다 (규칙: ${x.rule})`))),
+        steps: ruled.map((x) => step('입력', qa(`${x.label}에 규칙을 어기는 값을 입력하고 제출한다 (규칙: ${x.rule})`))),
         expected: ruled.slice(0, 6).map((f) => `${f.label}: 규칙 위반 값 거부 + 사유 안내 (${truncate(f.rule, 40)})`),
         evidence: evidenceFor(form, ruled.map((f) => `${f.label}: ${f.rule}`).join(' / ')),
         evidenceId,
@@ -245,7 +246,7 @@ function buildWebTestCases(inventory, options = {}) {
         title: `QA 지정 조건 확인 (${noted.length}개 필드)`,
         objective: 'QA 가 기록한 조건·예외가 실제 화면에서 성립하는지 확인한다.',
         precondition: base,
-        steps: noted.map((x) => step('확인', qa(`${x.label} 이 "${x.note}" 대로 동작하는지 확인한다`))),
+        steps: noted.map((x) => step('확인', qa(`${josa(x.label, "이")} "${x.note}" 대로 동작하는지 확인한다`))),
         expected: noted.slice(0, 6).map((f) => `${f.label} — ${f.note} 조건이 명세대로 동작`),
         evidence: evidenceFor(form, noted.map((f) => `${f.label}: ${f.note}`).join(' / ')),
         evidenceId,
@@ -260,10 +261,10 @@ function buildWebTestCases(inventory, options = {}) {
     if (typed.length) {
       emit('Fail', area, {
         title: '형식에 맞지 않는 값 입력',
-        objective: `${form.name} 의 타입·패턴 제약이 실제로 검증되는지 확인한다.`,
+        objective: `${form.name}의 타입·패턴 제약이 실제로 검증되는지 확인한다.`,
         precondition: base,
         steps: typed.map((x) => step('입력', qa(
-          `${x.label} 에 ${INVALID_SAMPLE[x.type] || `패턴을 어기는 값 (패턴: ${String(x.constraints.pattern)})`} 을 입력하고 제출한다`,
+          `${x.label}에 ${josa(INVALID_SAMPLE[x.type] || `패턴을 어기는 값(패턴: ${String(x.constraints.pattern)})`)} 입력하고 제출한다`,
         ))).concat(step('확인', qa('각 필드의 오류 안내 문구와 제출 차단 여부를 확인한다'))),
         expected: [
           sys('형식이 잘못된 필드마다 오류를 안내한다'),
@@ -287,19 +288,26 @@ function buildWebTestCases(inventory, options = {}) {
       const lower = c.minLength || c.min;
       const points = [];
       if (lower !== undefined && lower !== null) {
-        points.push(`${Number(lower) - 1} → 거부`, `${lower} → 허용`);
+        points.push(
+          `${Number(lower) - 1} → 거부하고 안내 문구를 표시한다`,
+          `${lower} → 받아들이고 정상 처리한다`,
+        );
       }
       if (limit !== undefined && limit !== null) {
-        points.push(`${limit} → 허용`, `${Number(limit) + 1} → 거부(또는 입력 자체가 잘림)`);
+        points.push(
+          `${limit} → 받아들이고 정상 처리한다`,
+          `${Number(limit) + 1} → 거부하거나, 넘치는 부분을 잘라 낸다`,
+        );
       }
       emit('Edge Case', area, {
         title: `${f.label} 경계값 (${describeConstraints(f).join(' · ')})`,
-        objective: `${form.name} 의 ${f.label} 항목이 경계값에서 정확히 허용·거부되는지 확인한다.`,
+        objective: `${form.name}의 ${f.label} 항목이 경계값에서 정확히 허용·거부되는지 확인한다.`,
         precondition: base.concat(`대상 필드: ${f.label} (${f.type})`),
         steps: points.map((p) => step('입력', qa(
-          `${f.label} 에 ${p.split(' → ')[0]} 길이(또는 값)를 입력하고 제출한다`,
-        ))).concat(step('확인', qa('각 값의 허용·거부 결과와 안내 문구를 확인한다'))),
-        expected: points.map((p) => sys(`${p.split(' → ')[0]} 입력 시 ${p.split(' → ')[1]}`)),
+          `${f.label}에 ${josa(p.split(' → ')[0])} 입력하고 제출한다`
+          + ' (길이 제한이면 그 글자 수만큼 채운다)',
+        ))).concat(step('확인', qa('네 번 각각 통과했는지 거부됐는지, 어떤 문구가 떴는지 확인한다'))),
+        expected: points.map((p) => sys(`${josa(p.split(' → ')[0])} 넣으면 ${p.split(' → ')[1]}`)),
         evidence: evidenceFor(form, `${f.name || f.label}: ${JSON.stringify(c)} (${f.source === 'user' || f.source === 'user-added' ? 'QA 지정' : '페이지 관측'})`),
         evidenceId,
         priority: 'Med',
@@ -315,8 +323,8 @@ function buildWebTestCases(inventory, options = {}) {
         objective: '입력값이 그대로 렌더되어 스크립트가 실행되지 않는지 확인한다.',
         precondition: base,
         steps: [
-          step('입력', qa(`${form.name} 의 텍스트 항목에 <script>alert(1)</script> 와 "><img src=x onerror=alert(1)> 를 입력한다`)),
-          step('실행', qa(`${form.name} 을 제출한다`)),
+          step('입력', qa(`${form.name}의 텍스트 항목에 <script>alert(1)</script> 와 "><img src=x onerror=alert(1)> 를 입력한다`)),
+          step('실행', qa(`${josa(form.name)} 제출한다`)),
           step('확인', qa('결과 화면과 목록·상세에서 스크립트가 실행되는지, 문자 그대로 보이는지 확인한다')),
         ],
         expected: [
@@ -411,11 +419,11 @@ function buildWebTestCases(inventory, options = {}) {
       objective: '내부 링크가 의도한 화면으로 이동하고 깨진 링크가 없는지 확인한다.',
       precondition: base,
       steps: [
-        step('실행', qa(`대표 링크를 순서대로 클릭한다 — ${inventory.links.internal.slice(0, 5).map((l) => l.label || l.path).join(', ')}`)),
-        step('확인', qa('각 링크의 이동 결과와 404·500 발생 여부, 뒤로 가기 복귀를 확인한다')),
+        step('실행', qa(`대표 링크(${inventory.links.internal.slice(0, 5).map((l) => l.label || l.path).join(', ')})를 순서대로 클릭한다`)),
+        step('확인', qa('각 링크의 이동 결과와 오류 페이지(404·500) 발생 여부, 뒤로 가기 복귀를 확인한다')),
       ],
       expected: [
-        sys('모든 링크에서 200 으로 응답하고 화면을 이동시킨다'),
+        sys('모든 링크에서 정상 응답(200)을 주고 화면을 이동시킨다'),
         sys('뒤로 가기를 누르면 이전 화면으로 되돌린다'),
         sys('깨진 링크를 남기지 않는다'),
       ],
@@ -437,7 +445,7 @@ function buildWebTestCases(inventory, options = {}) {
         step('실행', qa('해당 링크로 이동한 뒤 원본 탭의 상태를 확인한다')),
       ],
       expected: [
-        sys('새 창 링크에 rel="noopener noreferrer" 를 적용한다'),
+        sys('새 창으로 여는 링크에 rel="noopener noreferrer" 속성을 넣는다'),
         sys('새 창에서 원본 창(window.opener)에 접근하지 못하게 한다'),
       ],
       evidence: `target=_blank + rel 누락 ${inventory.links.problems.targetBlankNoRel}건`,
@@ -462,7 +470,7 @@ function buildWebTestCases(inventory, options = {}) {
       objective: '스크린리더·키보드 사용자가 화면을 이용할 수 있는지 확인한다.',
       precondition: base.concat('스크린리더 또는 접근성 검사 도구'),
       steps: [
-        step('확인', qa(`정적 분석에서 나온 신호를 화면에서 확인한다 — ${findings.join(' / ')}`)),
+        step('확인', qa(`정적 분석에서 나온 신호(${findings.join(' / ')})를 화면에서 확인한다`)),
         step('실행', qa('Tab 키만으로 주요 기능까지 이동한다')),
         step('확인', qa('이동하는 동안 포커스 표시가 보이는지 확인한다')),
       ],
@@ -509,7 +517,7 @@ function buildWebTestCases(inventory, options = {}) {
       step('확인', qa('안내 화면과 복구 수단이 제공되는지 확인한다')),
     ],
     expected: [
-      sys('404 안내 화면을 표시한다 (빈 화면이나 스택 트레이스가 아니다)'),
+      sys('없는 페이지(404) 안내 화면을 보여준다 — 빈 화면이나 오류 코드 덤프가 아니다'),
       sys('네트워크 오류를 안내하고 재시도 수단을 제공한다'),
     ],
     evidence: `기준 주소 ${inventory.page.url}`,
