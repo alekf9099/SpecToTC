@@ -1770,6 +1770,83 @@ test('업로드 한도 — 한도를 넘으면 안내와 함께 413 을 준다',
   assert.match(data.error, /너무 큽/, data.error);
 }, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_MAX_UPLOAD: String(200 * 1024) }));
 
+/* --------------------------------- 브라우저에서 뽑은 줄 → 기획서 텍스트 */
+
+const { assemblePages } = require('../src/extract/pdf');
+
+test('브라우저 추출 — 서버 업로드와 같은 텍스트가 나온다', async () => {
+  // 같은 PDF 를 (1) 서버가 직접 읽은 경우와 (2) 브라우저가 줄만 뽑아 보낸 경우의
+  // 결과가 달라지면, 큰 파일만 다른 TC 가 나오는 셈이라 믿을 수 없다.
+  const lines = [
+    'Login requirements for the shopping service.',
+    'The password must be at least 8 characters and no more than 20 char-',
+    'acters long when the user signs up.',
+    'If the payment fails, the order is not confirmed.',
+  ];
+  const pdf = makePdf(lines);
+
+  const server = await extractText(pdf, 'spec.pdf');
+  // 브라우저는 itemsToLines 와 같은 규칙으로 줄만 만들어 보낸다
+  const browser = assemblePages([lines]);
+
+  assert.equal(browser.text, server.text, '두 경로의 텍스트가 달라졌다');
+  assert.match(browser.text, /20 characters long/, '하이픈 분철이 이어져야 한다');
+});
+
+test('POST /api/extract-lines — 줄만 받아 텍스트를 만든다', () => withServer(async (base) => {
+  const res = await post(base, '/api/extract-lines', {
+    fileName: '대용량-기획서.pdf',
+    bytes: 10 * 1024 * 1024,
+    pages: [
+      ['교차진단 > 검사결과 다운로드 비밀번호 on/off 기능 설정 (이', '때 비밀번호는 생년월일 6자리를 쓴다.'],
+      ['결제 승인이 실패하면 주문을 확정하지 않는다.'],
+    ],
+  });
+
+  assert.equal(res.status, 200);
+  const data = await res.json();
+
+  // 서버가 줄 잇기를 그대로 담당한다
+  assert.match(data.specText, /기능 설정 \(이때 비밀번호는/);
+  assert.equal(data.meta.kind, 'pdf');
+  assert.equal(data.meta.source, 'browser');
+  assert.equal(data.meta.pages, 2);
+  assert.ok(data.meta.chars > 0);
+
+  // 파일명은 경로를 떼고 받는다
+  const traversal = await post(base, '/api/extract-lines', {
+    fileName: '../../etc/passwd', pages: [['비밀번호는 8자 이상이다.']],
+  });
+  assert.equal((await traversal.json()).meta.fileName, 'passwd');
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+
+test('POST /api/extract-lines — 빈 입력과 글자 없는 PDF 를 구분해 안내한다', () => withServer(async (base) => {
+  const empty = await post(base, '/api/extract-lines', { pages: [] });
+  assert.equal(empty.status, 400);
+  assert.match((await empty.json()).error, /페이지가 없습니다/);
+
+  // 스캔 이미지 PDF 는 줄은 있지만 글자가 없다
+  const noText = await post(base, '/api/extract-lines', { pages: [['', '   ']] });
+  assert.equal(noText.status, 400);
+  assert.match((await noText.json()).error, /OCR/);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true' }));
+
+test('GET /vendor — pdf.js 브라우저 빌드만 내보낸다', () => withServer(async (base) => {
+  // 큰 PDF 를 브라우저에서 읽으려면 pdf.js 가 필요하다
+  for (const file of ['pdf.min.mjs', 'pdf.worker.min.mjs']) {
+    const res = await fetch(`${base}/vendor/${file}`);
+    assert.equal(res.status, 200, file);
+    assert.match(res.headers.get('content-type'), /javascript/);
+    assert.ok((await res.text()).length > 1000, `${file} 이 비어 있다`);
+  }
+
+  // 목록에 없는 파일은 내보내지 않는다 (node_modules 를 열어 주면 안 된다)
+  for (const bad of ['pdf.mjs', 'pdf.sandbox.mjs', '..%2F..%2Fpackage.json']) {
+    const res = await fetch(`${base}/vendor/${bad}`);
+    assert.equal(res.status, 404, `${bad} 가 열렸다`);
+  }
+}));
+
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {

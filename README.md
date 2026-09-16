@@ -76,9 +76,9 @@ SpecToTC/
 │   └── ai.js                 선택적 Claude 보강 (claude-opus-5)
 ├── public/                   대시보드 (index.html / login.html / dashboard.css / dashboard.js /
 │                             summary-view.js / qa-plan-view.js / report.js / web-view.js /
-│                             web-form-editor.js / theme.js / robots.txt)
+│                             web-form-editor.js / extract-client.js / theme.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (128 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (132 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -139,15 +139,25 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 - 확장자가 없거나 잘못돼도 매직 넘버(`%PDF-`, ZIP 시그니처)로 형식을 판별합니다.
 - 기본 업로드 상한 25MB (`SPECTOTC_MAX_UPLOAD`), 기획서 텍스트 상한 30만자 (`SPECTOTC_MAX_SPEC`).
 
-> ⚠️ **Vercel 에 배포한 경우 실제 한도는 4.5MB 입니다.** 서버리스 함수의 요청 본문 제한이고,
-> 우리 코드가 실행되기 전에 플랫폼이 적용하므로 큰 PDF 를 올리면 우리가 만든 안내 대신
-> 맨 `HTTP 413` 이 돌아옵니다. `GET /api/health` 의 `upload` 가 **실효 한도**를 알려주고,
-> 드롭존에도 그 값이 표시됩니다 (`최대 4.5MB`). 더 큰 문서는 로컬·사내 서버에서 실행하거나
-> 문서를 나눠 올리세요.
+> ⚠️ **Vercel 에 배포한 경우 서버 업로드 한도는 4.5MB 입니다.** 서버리스 함수의 요청 본문 제한이고,
+> 우리 코드가 실행되기 전에 플랫폼이 적용하므로 값을 올려서 풀 수 없습니다.
+>
+> **대신 큰 PDF 는 브라우저에서 직접 읽습니다.** 한도를 넘는 PDF 를 올리면 브라우저의 pdf.js 가
+> 파일을 읽어 **글자만** 서버로 보냅니다. 10MB PDF 도 텍스트는 수십 KB 라 제한에 걸리지 않고,
+> **파일은 사용자 기기를 떠나지 않습니다.** 브라우저 처리 상한은 100MB 입니다.
+
+| 경로 | 언제 | 한도 |
+|---|---|---|
+| 서버 업로드 (`/api/extract-text`) | 한도 안의 모든 형식 | Vercel 4.5MB · 자체 운영 25MB |
+| **브라우저 추출** (`/api/extract-lines`) | 한도를 넘는 **PDF** | 100MB |
+
+줄 잇기·머리글 제거 같은 텍스트 규칙은 **서버가 그대로 담당합니다**(`assemblePages`).
+브라우저는 pdf.js 로 읽기만 하므로 두 경로의 결과가 같습니다 (테스트로 고정).
+`.docx` 와 텍스트 파일은 아직 브라우저 추출을 지원하지 않습니다 — 한도를 넘으면 안내합니다.
 
 | 항목 | 의미 |
 |---|---|
-| `upload.maxBytes` | **실효 한도** — 설정값과 플랫폼 한도 중 작은 쪽 |
+| `upload.maxBytes` | **서버 업로드 실효 한도** — 설정값과 플랫폼 한도 중 작은 쪽 |
 | `upload.configuredMaxBytes` | `SPECTOTC_MAX_UPLOAD` 설정값 |
 | `upload.platform` | `vercel` / `self-hosted` |
 | `upload.note` | 플랫폼이 더 낮을 때의 안내 문구 |
