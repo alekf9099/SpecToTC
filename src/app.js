@@ -10,7 +10,7 @@ const { diffSpecs } = require('./diff');
 const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
 const { extractText, maxBytes: uploadMaxBytes } = require('./extract');
-const { domSupport } = require('./extract/pdf');
+const { domSupport, assemblePages } = require('./extract/pdf');
 const { fetchPage } = require('./web/fetchPage');
 const { buildInventory } = require('./web/inventory');
 const { buildWebTestCases } = require('./web/webTestCases');
@@ -287,6 +287,57 @@ function createApp() {
         badRequest(res, err.message);
       }
     });
+
+  /**
+   * 브라우저가 뽑은 PDF 줄 → 기획서 텍스트.
+   *
+   * 파일 자체가 아니라 **뽑아낸 줄만** 받는다. 10MB PDF 도 텍스트는 수십 KB 라
+   * Vercel 의 4.5MB 본문 제한에 걸리지 않는다.
+   *
+   * 줄 잇기·머리글 제거 같은 처리는 서버(assemblePages)가 그대로 담당한다.
+   * 브라우저는 pdf.js 로 읽기만 하고, 텍스트 규칙은 한 곳에만 둔다.
+   */
+  app.post('/api/extract-lines', uploadLimiter, (req, res) => {
+    const body = req.body || {};
+    const pages = Array.isArray(body.pages) ? body.pages : null;
+    if (!pages || !pages.length) return badRequest(res, '추출된 페이지가 없습니다.');
+
+    // 클라이언트가 보낸 값이므로 크기·타입을 제한한다
+    const safe = pages.slice(0, 2000).map((lines) => (Array.isArray(lines) ? lines : [])
+      .slice(0, 5000)
+      .filter((l) => typeof l === 'string')
+      .map((l) => l.slice(0, 2000)));
+
+    // 공백만 있는 줄은 글자로 세지 않는다. 스캔 이미지 PDF 는 빈 줄만 잔뜩 나온다.
+    const chars = safe.reduce((n, lines) => n + lines.reduce((m, l) => m + l.trim().length, 0), 0);
+    if (!chars) {
+      return badRequest(res, 'PDF 에서 글자를 찾지 못했습니다. 스캔 이미지 PDF 라면 OCR 이 필요합니다.');
+    }
+
+    const started = Date.now();
+    const { text, removed } = assemblePages(safe);
+    const truncated = text.length > MAX_SPEC_LENGTH;
+
+    const fileName = typeof body.fileName === 'string' ? path.basename(body.fileName).slice(0, 200) : 'upload.pdf';
+    logMeta('extract.lines', {
+      pages: safe.length, chars: text.length, removedChrome: removed, ms: Date.now() - started,
+    });
+
+    res.json({
+      ok: true,
+      specText: truncated ? text.slice(0, MAX_SPEC_LENGTH) : text,
+      meta: {
+        fileName,
+        kind: 'pdf',
+        source: 'browser',
+        pages: safe.length,
+        bytes: Number(body.bytes) || null,
+        chars: text.length,
+        truncated,
+        removedChrome: removed,
+      },
+    });
+  });
 
   /* ---------------------------------------------------- TC 생성 (메인) */
   app.post('/api/generate-tc', generateLimiter, maybeAiLimit, async (req, res) => {
@@ -745,6 +796,32 @@ function createApp() {
   });
 
   /* ---------------------------------------------------------- 정적 파일 */
+  /**
+   * 브라우저용 pdf.js — 큰 PDF 를 브라우저에서 직접 읽기 위한 것.
+   *
+   * Vercel 서버리스는 요청 본문이 4.5MB 로 막혀 있어 큰 파일은 서버로 보낼 수 없다.
+   * 대신 브라우저가 PDF 를 읽어 **텍스트만** 보내면 수십 KB 라 제한에 걸리지 않는다.
+   * node_modules 에서 그대로 내보내므로 빌드 단계가 필요 없다.
+   */
+  // 내보낼 파일을 목록으로 고정한다. 경로를 받아 그대로 resolve 하면
+  // node_modules 아무 파일이나 꺼내 갈 수 있다.
+  const VENDOR_FILES = new Set(['pdf.min.mjs', 'pdf.worker.min.mjs']);
+
+  app.get('/vendor/:file', (req, res) => {
+    if (!VENDOR_FILES.has(req.params.file)) {
+      return res.status(404).json({ ok: false, error: '없는 파일입니다.' });
+    }
+    let file;
+    try {
+      file = require.resolve(`pdfjs-dist/build/${req.params.file}`);
+    } catch (err) {
+      return res.status(404).json({ ok: false, error: 'pdf.js 브라우저 빌드를 찾을 수 없습니다.' });
+    }
+    res.set('Content-Type', 'text/javascript; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.sendFile(file);
+  });
+
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
   app.use('/api', (req, res) => res.status(404).json({ ok: false, error: `없는 API 경로: ${req.method} ${req.originalUrl}` }));

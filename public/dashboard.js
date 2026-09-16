@@ -289,7 +289,12 @@ function showFileChip(meta, selector) {
   if (!meta) { chip.hidden = true; chip.innerHTML = ''; return; }
 
   const bits = [KIND_LABEL[meta.kind] || meta.kind, `${meta.chars.toLocaleString()}자`];
-  if (meta.pages) bits.push(`${meta.extractedPages}/${meta.pages}p`);
+  // 서버 추출은 extractedPages/pages, 브라우저 추출은 pages/totalPages 로 온다
+  const read = meta.extractedPages ?? meta.pages;
+  const total = meta.pages && meta.extractedPages ? meta.pages : meta.totalPages;
+  if (read && total) bits.push(`${read}/${total}p`);
+  else if (read) bits.push(`${read}p`);
+  if (meta.source === 'browser') bits.push('브라우저에서 추출');
   if (meta.paragraphs) bits.push(`문단 ${meta.paragraphs}`);
   if (meta.tables) bits.push(`표 ${meta.tables}`);
   if (meta.encoding && meta.encoding !== 'utf-8') bits.push(meta.encoding);
@@ -337,14 +342,22 @@ function uploadSizeError(file) {
 async function uploadFile(file, opts = {}) {
   if (!file) return;
 
+  const mode = opts.mode || 'generate';
+  const dz = $(opts.dropzone || '#dropzone');
+
+  // 서버 한도를 넘는 PDF 는 브라우저에서 읽어 텍스트만 보낸다.
+  // 파일을 올릴 수 없는 것이지 읽을 수 없는 게 아니다.
+  const overLimit = Boolean(uploadSizeError(file));
+  if (overLimit && canExtractInBrowser(file)) {
+    return extractInBrowserThenRun(file, { ...opts, mode, dz });
+  }
+
   const tooBig = uploadSizeError(file);
   if (tooBig) {
     setStatus(tooBig, 'error');
     return;
   }
 
-  const mode = opts.mode || 'generate';
-  const dz = $(opts.dropzone || '#dropzone');
   dz.classList.add('is-busy');
   setStatus(`${file.name} (${fileSize(file.size)}) 에서 텍스트를 추출하는 중…`);
 
@@ -389,6 +402,47 @@ async function uploadFile(file, opts = {}) {
     else await generate();
   } catch (err) {
     setStatus(`파일 처리 실패: ${err.message}`, 'error');
+  } finally {
+    dz.classList.remove('is-busy');
+  }
+}
+
+/**
+ * 서버 한도를 넘는 PDF 를 브라우저에서 읽어 텍스트만 보낸다.
+ *
+ * 파일은 사용자 기기를 떠나지 않고, 서버로는 뽑아낸 글자만 간다.
+ * 그래서 Vercel 의 4.5MB 본문 제한과 무관하게 큰 문서를 처리할 수 있다.
+ */
+async function extractInBrowserThenRun(file, opts) {
+  const { mode, dz } = opts;
+  dz.classList.add('is-busy');
+  setStatus(`${file.name} (${fileSize(file.size)}) — 서버 한도를 넘어 브라우저에서 직접 읽습니다…`);
+
+  try {
+    const { specText, meta } = await extractPdfInBrowser(file, (done, total) => {
+      setStatus(`${file.name} 읽는 중… ${done}/${total} 페이지`);
+    });
+
+    $('#specText').value = specText;
+    state.sourceName = meta.fileName;
+    showFileChip(meta, opts.chip || '#fileChip');
+    if (opts.chip && opts.chip !== '#fileChip') showFileChip(meta, '#fileChip');
+
+    const notes = [
+      `${file.name} — 브라우저에서 ${meta.totalPages}쪽을 읽어 ${meta.chars.toLocaleString()}자를 추출했습니다.`,
+      '파일은 서버로 올라가지 않았습니다 (글자만 전송).',
+      meta.failedPages.length ? `⚠ 읽지 못한 쪽 ${meta.failedPages.length}개: ${meta.failedPages.join(', ')}` : '',
+      meta.truncated ? '⚠ 문서가 길어 앞부분만 사용합니다.' : '',
+    ].filter(Boolean);
+    setStatus(notes.join('\n'), 'ok');
+
+    if (mode === 'summary') await summarizeOnly(specText);
+    else await generate();
+  } catch (err) {
+    setStatus([
+      `파일 처리 실패: ${err.message}`,
+      '브라우저에서 읽는 데 실패했습니다. PDF 를 나눠 올리거나, 텍스트를 복사해 좌측에 붙여넣어 주세요.',
+    ].join('\n'), 'error');
   } finally {
     dz.classList.remove('is-busy');
   }
@@ -759,8 +813,14 @@ function renderUploadHint() {
     if (el.querySelector('.upload-limit')) return;
     const tag = document.createElement('span');
     tag.className = 'upload-limit';
-    tag.textContent = ` · 최대 ${limit}`;
-    tag.title = u.note || `이 서버의 업로드 한도는 ${limit} 입니다.`;
+    // PDF 는 한도를 넘어도 브라우저에서 읽으므로 그 사실을 함께 적는다.
+    // "최대 4.5MB" 만 보이면 큰 PDF 를 아예 시도하지 않게 된다.
+    tag.textContent = u.note ? ` · 업로드 ${limit} (PDF 는 초과해도 처리)` : ` · 최대 ${limit}`;
+    tag.title = u.note
+      ? `${u.note}
+
+PDF 는 한도를 넘어도 브라우저에서 직접 읽어 처리합니다 (파일은 서버로 올라가지 않습니다).`
+      : `이 서버의 업로드 한도는 ${limit} 입니다.`;
     el.appendChild(tag);
   });
 }

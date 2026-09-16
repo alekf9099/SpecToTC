@@ -193,6 +193,26 @@ function reflowWrappedLines(lines) {
 }
 
 
+/**
+ * 페이지별 줄 목록 → 하나의 텍스트.
+ *
+ * 줄바꿈 잇기 · 글머리표 정규화 · 머리글/바닥글 제거를 여기서 함께 한다.
+ * 브라우저에서 pdf.js 로 뽑아 보낸 줄도 이 함수를 그대로 통과시켜야 서버 업로드와
+ * 결과가 같아진다. 같은 로직을 두 곳에 두면 반드시 갈라진다.
+ */
+function assemblePages(pages) {
+  const reflowed = pages.map((lines) => reflowWrappedLines(lines).map(normalizeBullets).filter(Boolean));
+  const cleaned = stripPageChrome(reflowed);
+  const removed = reflowed.reduce((n, p) => n + p.length, 0) - cleaned.reduce((n, p) => n + p.length, 0);
+  const text = cleaned
+    .filter((lines) => lines.length)
+    .map((lines) => lines.join('\n'))
+    .join('\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { text, removed };
+}
+
 /** 페이지마다 반복되는 머리글·바닥글, 페이지 번호/인쇄 시각 줄 */
 const CHROME_PATTERNS = [
   /^\d+\s*\/\s*\d+$/,                       // 1/4
@@ -293,9 +313,9 @@ async function extractPdf(buffer, options = {}) {
       try {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        // 줄바꿈으로 끊긴 문장을 먼저 잇고 나서 글머리표를 정규화한다
-        const lines = reflowWrappedLines(itemsToLines(content.items));
-        pages.push(lines.map(normalizeBullets).filter(Boolean));
+        // 원본 줄만 모은다. 줄 잇기·글머리표 정규화는 assemblePages 가 한다
+        // (브라우저에서 뽑아 보낸 줄도 같은 함수를 거쳐야 결과가 같다).
+        pages.push(itemsToLines(content.items));
         page.cleanup();
       } catch (err) {
         // 한 페이지가 실패해도 나머지는 살린다 (도표·이미지가 섞인 페이지에서 발생).
@@ -310,14 +330,7 @@ async function extractPdf(buffer, options = {}) {
     throw new Error(failedPages[0].reason);
   }
 
-  const cleaned = stripPageChrome(pages);
-  const removed = pages.reduce((n, p) => n + p.length, 0) - cleaned.reduce((n, p) => n + p.length, 0);
-  const text = cleaned
-    .filter((lines) => lines.length)
-    .map((lines) => lines.join('\n'))
-    .join('\n\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const { text, removed } = assemblePages(pages);
   if (!text) {
     throw new Error('PDF 에서 텍스트를 찾지 못했습니다. 스캔 이미지 PDF 는 OCR 이 필요합니다.');
   }
@@ -335,6 +348,6 @@ async function extractPdf(buffer, options = {}) {
 }
 
 module.exports = {
-  extractPdf, itemsToLines, reflowWrappedLines, normalizeBullets,
+  extractPdf, itemsToLines, reflowWrappedLines, normalizeBullets, assemblePages,
   stripPageChrome, isChrome, describePdfError, domSupport,
 };
