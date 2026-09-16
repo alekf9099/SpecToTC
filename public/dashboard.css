@@ -832,3 +832,6 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
   overflow: hidden;
 }
 .cell-title .cell-objective { -webkit-line-clamp: 1; }
+
+/* 드롭존에 표시하는 실효 업로드 한도 */
+.upload-limit { color: var(--fg-subtle); }

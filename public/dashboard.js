@@ -6,6 +6,7 @@ const state = {
   sourceName: null,
   webUrl: null,
   ai: null,
+  upload: null,
   ranEmpty: false,
   browser: null,
   webInventory: null,
@@ -310,12 +311,42 @@ function showFileChip(meta, selector) {
  * @param {{mode?: 'generate'|'summary', dropzone?: string, chip?: string}} opts
  *   mode 'summary' 면 TC 생성 대신 요약만 실행한다 (요약 탭에 올린 경우).
  */
+/** 바이트를 사람이 읽는 크기로 */
+function fileSize(bytes) {
+  const mb = bytes / 1024 / 1024;
+  return mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+/**
+ * 올리기 전에 크기를 본다.
+ *
+ * 한도를 넘는 파일을 그냥 보내면 Vercel 이 우리 코드 전에 막아 맨 `HTTP 413` 만
+ * 돌아온다. 사용자는 무엇이 문제인지도, 얼마까지 되는지도 알 수 없다.
+ */
+function uploadSizeError(file) {
+  const limit = state.upload && state.upload.maxBytes;
+  if (!limit || file.size <= limit) return null;
+
+  return [
+    `파일이 너무 큽니다 — ${file.name} 은 ${fileSize(file.size)} 인데 이 서버는 ${fileSize(limit)} 까지 받습니다.`,
+    state.upload.note || '',
+    '해결 방법: 문서를 나눠서 올리거나, PDF 를 다시 내보내 용량을 줄이거나(이미지 압축), 텍스트를 복사해 좌측에 붙여넣으세요.',
+  ].filter(Boolean).join('\n');
+}
+
 async function uploadFile(file, opts = {}) {
   if (!file) return;
+
+  const tooBig = uploadSizeError(file);
+  if (tooBig) {
+    setStatus(tooBig, 'error');
+    return;
+  }
+
   const mode = opts.mode || 'generate';
   const dz = $(opts.dropzone || '#dropzone');
   dz.classList.add('is-busy');
-  setStatus(`${file.name} 에서 텍스트를 추출하는 중…`);
+  setStatus(`${file.name} (${fileSize(file.size)}) 에서 텍스트를 추출하는 중…`);
 
   try {
     const res = await fetch('/api/extract-text', {
@@ -331,6 +362,17 @@ async function uploadFile(file, opts = {}) {
       redirectToLogin();
       return;
     }
+    // 413 은 플랫폼(Vercel)이 우리 코드 전에 막은 경우가 많아 본문이 JSON 이 아니다.
+    // 맨 "HTTP 413" 대신 얼마까지 되는지와 무엇을 하면 되는지를 알려준다.
+    if (res.status === 413) {
+      const limit = state.upload && state.upload.maxBytes;
+      throw new Error([
+        `파일이 너무 큽니다 — ${file.name} 은 ${fileSize(file.size)} 입니다${limit ? ` (한도 ${fileSize(limit)})` : ''}.`,
+        (state.upload && state.upload.note) || '',
+        '문서를 나눠 올리거나, PDF 를 다시 내보내 용량을 줄이거나, 텍스트를 복사해 좌측에 붙여넣으세요.',
+      ].filter(Boolean).join('\n'));
+    }
+
     const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
     if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
 
@@ -595,6 +637,8 @@ async function loadHealth() {
     $('#healthBadge').className = 'badge badge-ok';
     applyAiGating();
     renderBrowserBadge(data.browser);
+    state.upload = data.upload || null;
+    renderUploadHint();
   } catch (err) {
     $('#aiBadge').textContent = '서버 연결 실패';
     $('#aiBadge').className = 'badge badge-off';
@@ -698,6 +742,27 @@ function renderBrowserBadge(browser) {
 
   badge.title = browserBlockReason('submit') || '렌더링 분석과 실행 검증을 모두 사용할 수 있습니다.';
   applyBrowserGating();
+}
+
+/**
+ * 드롭존에 실제 한도를 적는다.
+ *
+ * 설정값(25MB)과 실제 한도가 다를 수 있다 — Vercel 서버리스는 4.5MB 에서 막는다.
+ * 화면이 25MB 라고 안내하면서 5MB 에서 실패하면 도구가 고장난 것처럼 보인다.
+ */
+function renderUploadHint() {
+  const u = state.upload;
+  if (!u || !u.maxBytes) return;
+
+  const limit = fileSize(u.maxBytes);
+  $$('.dropzone-hint').forEach((el) => {
+    if (el.querySelector('.upload-limit')) return;
+    const tag = document.createElement('span');
+    tag.className = 'upload-limit';
+    tag.textContent = ` · 최대 ${limit}`;
+    tag.title = u.note || `이 서버의 업로드 한도는 ${limit} 입니다.`;
+    el.appendChild(tag);
+  });
 }
 
 bind();

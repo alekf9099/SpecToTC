@@ -78,7 +78,7 @@ SpecToTC/
 │                             summary-view.js / qa-plan-view.js / report.js / web-view.js /
 │                             web-form-editor.js / theme.js / robots.txt)
 ├── samples/sample-srs.md     샘플 기획서
-├── test/run.js               의존성 없는 테스트 러너 (125 케이스)
+├── test/run.js               의존성 없는 테스트 러너 (128 케이스)
 └── vercel.json               Vercel 배포 설정
 ```
 
@@ -138,6 +138,19 @@ SPECTOTC_SESSION_SECRET=랜덤문자열   # 선택, 비우면 비밀번호에서
 - 대시보드에서 **드래그 앤 드롭** 또는 클릭해 파일 선택. 추출이 끝나면 텍스트 영역이 채워지고 TC 생성까지 자동 진행됩니다.
 - 확장자가 없거나 잘못돼도 매직 넘버(`%PDF-`, ZIP 시그니처)로 형식을 판별합니다.
 - 기본 업로드 상한 25MB (`SPECTOTC_MAX_UPLOAD`), 기획서 텍스트 상한 30만자 (`SPECTOTC_MAX_SPEC`).
+
+> ⚠️ **Vercel 에 배포한 경우 실제 한도는 4.5MB 입니다.** 서버리스 함수의 요청 본문 제한이고,
+> 우리 코드가 실행되기 전에 플랫폼이 적용하므로 큰 PDF 를 올리면 우리가 만든 안내 대신
+> 맨 `HTTP 413` 이 돌아옵니다. `GET /api/health` 의 `upload` 가 **실효 한도**를 알려주고,
+> 드롭존에도 그 값이 표시됩니다 (`최대 4.5MB`). 더 큰 문서는 로컬·사내 서버에서 실행하거나
+> 문서를 나눠 올리세요.
+
+| 항목 | 의미 |
+|---|---|
+| `upload.maxBytes` | **실효 한도** — 설정값과 플랫폼 한도 중 작은 쪽 |
+| `upload.configuredMaxBytes` | `SPECTOTC_MAX_UPLOAD` 설정값 |
+| `upload.platform` | `vercel` / `self-hosted` |
+| `upload.note` | 플랫폼이 더 낮을 때의 안내 문구 |
 - 스캔 이미지 PDF 는 텍스트가 없어 실패합니다(OCR 필요). 이 경우 오류 메시지로 안내합니다.
 - 특정 페이지에서 오류가 나면 그 페이지만 건너뛰고 나머지 텍스트를 살립니다 (`meta.failedPages`).
 
