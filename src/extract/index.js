@@ -5,7 +5,15 @@ const path = require('node:path');
 const { extractDocx } = require('./docx');
 const { extractPdf } = require('./pdf');
 
-const MAX_BYTES = Number(process.env.SPECTOTC_MAX_UPLOAD || 25 * 1024 * 1024);
+const DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * 업로드 한도는 호출 시점에 읽는다.
+ * 모듈을 불러오는 순간 고정하면 환경 변수를 바꿔도 서버를 다시 띄워야 반영된다.
+ */
+function maxBytes() {
+  return Number(process.env.SPECTOTC_MAX_UPLOAD || DEFAULT_MAX_BYTES);
+}
 
 const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.text', '.csv', '.tsv', '.json', '.yml', '.yaml', '.adoc', '.rst']);
 
@@ -53,8 +61,10 @@ function looksLikeBinary(buffer) {
  */
 async function extractText(buffer, fileName) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error('업로드된 파일이 비어 있습니다.');
-  if (buffer.length > MAX_BYTES) {
-    throw new Error(`파일이 너무 큽니다. 최대 ${Math.floor(MAX_BYTES / 1024 / 1024)}MB 까지 지원합니다.`);
+  const limit = maxBytes();
+  if (buffer.length > limit) {
+    const mb = (n) => (n / 1024 / 1024).toFixed(1).replace(/.0$/, '');
+    throw new Error(`파일이 너무 큽니다. ${mb(buffer.length)}MB 를 올렸는데 이 서버는 최대 ${mb(limit)}MB 까지 받습니다.`);
   }
 
   const ext = path.extname(String(fileName || '')).toLowerCase();
@@ -91,4 +101,8 @@ async function extractText(buffer, fileName) {
   throw new Error(`지원하지 않는 파일 형식입니다 (${ext || '확장자 없음'}). .md / .txt / .pdf / .docx 를 사용해 주세요.`);
 }
 
-module.exports = { extractText, decodeText, MAX_BYTES, TEXT_EXTENSIONS };
+module.exports = {
+  extractText, decodeText, maxBytes, TEXT_EXTENSIONS,
+  // 하위 호환 — 기존 코드가 상수로 읽던 이름
+  get MAX_BYTES() { return maxBytes(); },
+};

@@ -9,7 +9,7 @@ const { summarize } = require('./engine/generator');
 const { diffSpecs } = require('./diff');
 const { summarizeSpec } = require('./summary');
 const { toCsv, csvFileName } = require('./csv');
-const { extractText, MAX_BYTES: MAX_UPLOAD } = require('./extract');
+const { extractText, maxBytes: uploadMaxBytes } = require('./extract');
 const { domSupport } = require('./extract/pdf');
 const { fetchPage } = require('./web/fetchPage');
 const { buildInventory } = require('./web/inventory');
@@ -92,6 +92,36 @@ function logMeta(event, fields = {}) {
   console.log(`[SpecToTC] ${event}${parts ? ` ${parts}` : ''}`);
 }
 
+/**
+ * 실제로 올릴 수 있는 파일 크기.
+ *
+ * 설정값(SPECTOTC_MAX_UPLOAD, 기본 25MB)만 보면 안 된다. **Vercel 서버리스 함수는
+ * 요청 본문이 4.5MB 로 막혀 있고**, 그 한도는 우리 코드가 실행되기 전에 플랫폼이
+ * 적용한다. 그래서 큰 PDF 를 올리면 우리가 만든 안내 대신 맨 HTTP 413 이 돌아온다.
+ *
+ * 화면이 "25MB 까지" 라고 안내하면서 5MB 에서 실패하면 도구가 고장난 것처럼 보인다.
+ * 여기서 두 한도의 작은 쪽을 실효 한도로 계산해 화면과 안내에 같은 값을 쓴다.
+ */
+const VERCEL_BODY_LIMIT = Math.floor(4.5 * 1024 * 1024);
+
+function uploadLimits() {
+  const onVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
+  const configured = uploadMaxBytes();
+  const platformMax = onVercel ? VERCEL_BODY_LIMIT : null;
+  const effective = platformMax ? Math.min(configured, platformMax) : configured;
+
+  return {
+    maxBytes: effective,
+    configuredMaxBytes: configured,
+    platform: onVercel ? 'vercel' : 'self-hosted',
+    platformMaxBytes: platformMax,
+    note: platformMax && platformMax < configured
+      ? 'Vercel 서버리스는 요청 본문이 4.5MB 로 제한됩니다. 더 큰 파일은 로컬·사내 서버에서 실행하거나, 문서를 나눠 올려 주세요.'
+      : null,
+    formats: ['.md', '.txt', '.pdf', '.docx'],
+  };
+}
+
 function createApp() {
   const app = express();
   app.disable('x-powered-by');
@@ -169,7 +199,7 @@ function createApp() {
         model: ai.MODEL,
         tokenRequired: Boolean((process.env.SPECTOTC_AI_TOKEN || '').trim()),
       },
-      upload: { maxBytes: MAX_UPLOAD, formats: ['.md', '.txt', '.pdf', '.docx'] },
+      upload: uploadLimits(),
       // PDF 처리에 쓰는 DOM 구현 — "DOMMatrix is not defined" 류 문제를 바로 진단하기 위한 정보
       pdf: { dom: domSupport().source, nativeCanvas: domSupport().native, worker: domSupport().worker },
       browser: browserSupport(),
@@ -220,7 +250,7 @@ function createApp() {
   // 브라우저에서 fetch(file) 로 File 객체를 그대로 body 에 실을 수 있어 파서 의존성이 없다.
   app.post('/api/extract-text',
     uploadLimiter,
-    express.raw({ type: () => true, limit: `${Math.ceil(MAX_UPLOAD / 1024 / 1024)}mb` }),
+    express.raw({ type: () => true, limit: `${Math.ceil(uploadMaxBytes() / 1024 / 1024)}mb` }),
     async (req, res) => {
       if (!Buffer.isBuffer(req.body) || !req.body.length) {
         return badRequest(res, '업로드된 파일 본문이 비어 있습니다.');
@@ -249,6 +279,11 @@ function createApp() {
         });
       } catch (err) {
         logMeta('extract.failed', { bytes: req.body.length, ms: Date.now() - started });
+        // 크기 초과는 413 으로 돌려준다. 우리 검사는 400, 본문 파서·플랫폼은 413 으로
+        // 갈리면 화면에서 같은 상황을 두 갈래로 처리해야 한다.
+        if (/너무 큽니다/.test(err.message)) {
+          return res.status(413).json({ ok: false, error: err.message });
+        }
         badRequest(res, err.message);
       }
     });

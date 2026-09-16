@@ -1729,6 +1729,47 @@ test('모든 생성 경로 — 기대 결과의 주어는 시스템', () => {
   });
 });
 
+/* ------------------------------------------------- 업로드 크기 한도 안내 */
+
+test('업로드 한도 — Vercel 에서는 실효 한도가 4.5MB 로 내려간다', () => withServer(async (base) => {
+  // 설정값(25MB)만 보여주면 5MB 에서 실패할 때 도구가 고장난 것처럼 보인다.
+  // Vercel 서버리스는 요청 본문이 4.5MB 로 막혀 우리 코드가 실행되기도 전에 413 이 난다.
+  const res = await fetch(`${base}/api/health`);
+  const data = await res.json();
+
+  assert.equal(data.upload.platform, 'vercel');
+  assert.equal(data.upload.maxBytes, Math.floor(4.5 * 1024 * 1024));
+  assert.ok(data.upload.configuredMaxBytes > data.upload.maxBytes, '설정값과 실효값을 구분해야 한다');
+  assert.match(data.upload.note, /4\.5MB/, data.upload.note);
+}, { VERCEL: '1' }));
+
+test('업로드 한도 — 자체 운영 서버는 설정값을 그대로 쓴다', () => withServer(async (base) => {
+  const res = await fetch(`${base}/api/health`);
+  const data = await res.json();
+
+  assert.equal(data.upload.platform, 'self-hosted');
+  assert.equal(data.upload.maxBytes, data.upload.configuredMaxBytes);
+  assert.equal(data.upload.platformMaxBytes, null);
+  assert.equal(data.upload.note, null, '제약이 없으면 경고를 붙이지 않는다');
+  assert.deepEqual(data.upload.formats, ['.md', '.txt', '.pdf', '.docx']);
+}, { VERCEL: undefined, VERCEL_ENV: undefined }));
+
+test('업로드 한도 — 한도를 넘으면 안내와 함께 413 을 준다', () => withServer(async (base) => {
+  // 우리 서버가 직접 막는 경우에는 맨 HTTP 413 이 아니라 읽을 수 있는 안내를 준다
+  const tooBig = Buffer.alloc(300 * 1024, 0x41);
+
+  const res = await fetch(`${base}/api/extract-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf', 'X-File-Name': 'big.pdf' },
+    body: tooBig,
+  });
+
+  assert.equal(res.status, 413);
+  const data = await res.json();
+  assert.equal(data.ok, false);
+  assert.match(data.error, /너무 큽/, data.error);
+}, { SPECTOTC_DISABLE_RATELIMIT: 'true', SPECTOTC_MAX_UPLOAD: String(200 * 1024) }));
+
 /* ---------------------------------------------------------------- HTTP */
 
 function withServer(fn, envOverrides) {
