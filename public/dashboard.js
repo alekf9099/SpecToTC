@@ -15,7 +15,7 @@ const state = {
   aiSummary: null,
   view: 'tc',
   expanded: new Set(),
-  filter: { type: 'all', priority: 'all', area: 'all', q: '' },
+  filter: { type: 'all', priority: 'all', area: 'all', q: '', todoOnly: false },
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -57,9 +57,7 @@ async function api(path, body) {
 }
 
 /* --------------------------------------------------------------- rendering */
-const TYPE_CLASS = { Pass: 'pass', Fail: 'fail', 'Edge Case': 'edge' };
-// Pass/Fail 을 그대로 보여주면 '수행 결과' 로 읽힌다. 이 칸은 케이스 종류다.
-const TYPE_LABEL = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
+/* 케이스 종류의 이름·색은 tc-labels.js 한 곳에만 둔다 (TYPE_LABEL·TYPE_CLASS·TYPE_HINT) */
 
 function visibleCases() {
   const { type, priority, area, q } = state.filter;
@@ -68,6 +66,7 @@ function visibleCases() {
     if (type !== 'all' && tc.type !== type) return false;
     if (priority !== 'all' && tc.priority !== priority) return false;
     if (area !== 'all' && tc.area !== area) return false;
+    if (state.filter.todoOnly && isChecked(tc.tc_id)) return false;
     if (needle) {
       const hay = [
         tc.tc_id, tc.title || tc.scenario, tc.objective,
@@ -102,30 +101,46 @@ function renderTable() {
     } else {
       message = '좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.';
     }
-    body.innerHTML = `<tr class="empty-row"><td colspan="6">${message}</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="7">${message}</td></tr>`;
+    renderProgress();
     return;
   }
 
-  const list = (items, ordered) => {
+  const list = (items) => {
     if (!Array.isArray(items) || !items.length) return '<p class="detail-empty">-</p>';
-    const tag = ordered ? 'ol' : 'ul';
-    return `<${tag} class="detail-list">${items.map((s) => `<li>${esc(s)}</li>`).join('')}</${tag}>`;
+    return `<ul class="detail-list">${items.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`;
+  };
+
+  // 수행 단계만 체크박스로 — QA 가 실제로 하나씩 지워 나가는 단위다.
+  const stepList = (tc) => {
+    const steps = Array.isArray(tc.steps) ? tc.steps : [];
+    if (!steps.length) return '<p class="detail-empty">-</p>';
+    return `<ol class="detail-list step-list">${steps.map((text, i) => {
+      const on = isStepChecked(tc.tc_id, i);
+      return `<li class="step-item${on ? ' is-done' : ''}"><label>`
+        + `<input type="checkbox" class="step-check" data-tc="${esc(tc.tc_id)}" data-step="${i}"${on ? ' checked' : ''} />`
+        + `<span>${esc(text)}</span></label></li>`;
+    }).join('')}</ol>`;
   };
 
   body.innerHTML = rows.map((tc) => {
     const open = state.expanded.has(tc.tc_id);
     const req = tc.requirement || {};
-    const title = tc.title || tc.scenario || '';
+
+    // 제목 앞머리의 "[기능 확인]" 은 바로 옆 [케이스 종류] 칸과 같은 말이다.
+    // 내보낸 CSV·PDF 에서는 제목만 떼어 붙이는 일이 있어 남겨 두고, 둘이 나란히
+    // 보이는 표에서만 뗀다.
+    const title = String(tc.title || tc.scenario || '').replace(/^\[[^\]]+\]\s*/, '');
 
     const detail = `
       <tr class="detail-row" data-detail="${esc(tc.tc_id)}"${open ? '' : ' hidden'}>
-        <td colspan="6">
+        <td colspan="7">
           <div class="detail">
             <div class="detail-block detail-objective"><h4>검증 목적</h4><p>${esc(tc.objective || '-')}</p></div>
             <div class="detail-grid">
-              <div class="detail-block"><h4>사전 조건</h4>${list(tc.precondition, false)}</div>
-              <div class="detail-block"><h4>수행 단계</h4>${list(tc.steps, true)}</div>
-              <div class="detail-block"><h4>기대 결과</h4>${list(tc.expected, false)}</div>
+              <div class="detail-block"><h4>사전 조건</h4>${list(tc.precondition)}</div>
+              <div class="detail-block"><h4>수행 단계</h4>${stepList(tc)}</div>
+              <div class="detail-block"><h4>기대 결과</h4>${list(tc.expected)}</div>
             </div>
             <div class="detail-block detail-source">
               <h4>근거 요구사항</h4>
@@ -139,17 +154,52 @@ function renderTable() {
         </td>
       </tr>`;
 
+    const done = isChecked(tc.tc_id);
+    const stepCount = (tc.steps || []).length;
+    const doneSteps = checkedSteps(tc.tc_id).filter((i) => i < stepCount).length;
+    const partial = doneSteps > 0 && doneSteps < stepCount;
+
     return `
-      <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
+      <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}${done ? ' is-done' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
+        <td class="cell-check"><input type="checkbox" class="tc-check" data-tc="${esc(tc.tc_id)}"${done ? ' checked' : ''} aria-label="${esc(tc.tc_id)} 확인" />${partial ? `<span class="step-progress" title="수행 단계 ${doneSteps}/${stepCount} 확인">${doneSteps}/${stepCount}</span>` : ''}</td>
         <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}${
       tc.origin === 'live' ? '<span class="pill pill-live" title="브라우저로 실제 실행해 관측한 결과">실측</span>' : ''}</td>
-        <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}" title="케이스 종류 (수행 결과 아님)">${esc(TYPE_LABEL[tc.type] || tc.type)}</span></td>
+        <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}" title="${esc(TYPE_HINT)}">${esc(TYPE_LABEL[tc.type] || tc.type)}</span></td>
         <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
         <td class="cell-area">${esc(tc.area)}</td>
         <td class="cell-title">${esc(title)}<span class="cell-objective">${esc(tc.objective || '')}</span></td>
         <td class="cell-toggle"><span class="chevron" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
       </tr>${detail}`;
   }).join('');
+
+  renderProgress();
+}
+
+/**
+ * 진행률 — "몇 건 남았는지" 가 체크리스트의 유일한 존재 이유다.
+ * [미확인만] 을 켜면 확인한 행이 목록에서 빠지므로, 그때는 전체를 기준으로 센다.
+ * 그러지 않으면 체크할수록 분모가 줄어 진행률이 영영 100% 가 되지 않는다.
+ */
+function renderProgress() {
+  const box = $('#checkProgress');
+  if (!box) return;
+
+  const rows = visibleCases();
+  const { done, total, percent } = progressOf(state.filter.todoOnly ? state.testCases : rows);
+
+  const head = $('#checkAll');
+  if (head) {
+    head.checked = rows.length > 0 && rows.every((tc) => isChecked(tc.tc_id));
+    head.indeterminate = !head.checked && rows.some((tc) => isChecked(tc.tc_id));
+    head.disabled = rows.length === 0;
+  }
+
+  if (!total) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="progress-bar"><i style="width:${percent}%"></i></div>`
+    + `<span class="progress-text">확인 <b>${done}</b> / ${total}`
+    + `<span class="progress-left">${total - done ? ` · ${total - done}건 남음` : ' · 모두 확인'}</span></span>`
+    + `<button id="btnResetChecks" class="btn btn-sm btn-ghost" type="button"${done ? '' : ' disabled'}>체크 초기화</button>`;
 }
 
 function toggleDetail(tcId) {
@@ -166,9 +216,9 @@ function renderSummary(data) {
 
   $('#summary').innerHTML = [
     stat('총 TC', s.total),
-    stat('Pass', byType.Pass),
-    stat('Fail', byType.Fail),
-    stat('Edge', byType['Edge Case']),
+    stat(TYPE_LABEL.Pass, byType.Pass),
+    stat(TYPE_LABEL.Fail, byType.Fail),
+    stat(TYPE_LABEL['Edge Case'], byType['Edge Case']),
     stat('High', byPriority.High),
     stat('요구사항', (s.parse && s.parse.requirements) || (data.requirements || []).length),
     stat('영역', (data.areas || []).length),
@@ -221,7 +271,7 @@ async function generate() {
     if (!state.testCases.length) {
       const off = ['#optPass', '#optFail', '#optEdge'].filter((id) => !$(id).checked);
       lines.push(off.length === 3
-        ? 'Pass · Fail · Edge Case 를 모두 껐습니다. 하나 이상 켜고 다시 생성하세요.'
+        ? '케이스 종류를 모두 껐습니다. 하나 이상 켜고 다시 생성하세요.'
         : '판정할 수 있는 문장(조건 · 수치 기준 · 예외 처리)을 찾지 못했습니다. 우측 표의 안내와 문서 요약의 "확인 필요" 항목을 확인하세요.');
     }
     if (data.ai && data.ai.requested) {
@@ -241,7 +291,7 @@ async function exportCsv(opts = {}) {
     const res = await fetch('/api/export-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ testCases: visibleCases(), excel: opts.excel !== false, bom: opts.bom !== false }),
+      body: JSON.stringify({ testCases: withChecks(visibleCases()), excel: opts.excel !== false, bom: opts.bom !== false }),
     });
     if (res.status === 401) {
       redirectToLogin();
@@ -569,11 +619,32 @@ function bind() {
 
   // 행이 매번 다시 렌더되므로 tbody 에 위임해 상세를 토글한다.
   $('#tcBody').addEventListener('click', (e) => {
+    // 체크박스와 그 라벨은 상세를 여닫지 않는다. 체크하려다 행이 펼쳐지면
+    // 목록을 훑는 흐름이 매번 끊긴다.
+    if (e.target.closest('.cell-check, .step-item label')) return;
     const row = e.target.closest('tr.tc-row');
     if (row) toggleDetail(row.dataset.tc);
   });
+
+  $('#tcBody').addEventListener('change', (e) => {
+    const tcBox = e.target.closest('.tc-check');
+    if (tcBox) {
+      setChecked(tcBox.dataset.tc, tcBox.checked);
+      renderTable();
+      return;
+    }
+    const stepBox = e.target.closest('.step-check');
+    if (stepBox) {
+      const tcId = stepBox.dataset.tc;
+      const tc = state.testCases.find((x) => x.tc_id === tcId);
+      const total = ((tc && tc.steps) || []).length;
+      setStepChecked(tcId, Number(stepBox.dataset.step), stepBox.checked, total);
+      renderTable();
+    }
+  });
   $('#tcBody').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.matches('input[type="checkbox"]')) return;
     const row = e.target.closest('tr.tc-row');
     if (!row) return;
     e.preventDefault();
@@ -663,6 +734,20 @@ function bind() {
   $('#priorityFilter').addEventListener('change', (e) => { state.filter.priority = e.target.value; renderTable(); });
   $('#areaFilter').addEventListener('change', (e) => { state.filter.area = e.target.value; renderTable(); });
   $('#searchInput').addEventListener('input', (e) => { state.filter.q = e.target.value; renderTable(); });
+  $('#todoOnly').addEventListener('change', (e) => { state.filter.todoOnly = e.target.checked; renderTable(); });
+
+  $('#checkAll').addEventListener('change', (e) => {
+    setAllChecked(visibleCases().map((tc) => tc.tc_id), e.target.checked);
+    renderTable();
+  });
+
+  // 진행률 칸은 매번 다시 그려지므로 위임으로 받는다
+  $('#checkProgress').addEventListener('click', (e) => {
+    if (!e.target.closest('#btnResetChecks')) return;
+    if (!confirm('확인 표시를 모두 지웁니다. 계속할까요?')) return;
+    clearChecks();
+    renderTable();
+  });
 
   $('#specText').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') generate();

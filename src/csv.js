@@ -69,22 +69,49 @@ function organize(testCases) {
  * 순서는 "표를 왼쪽부터 읽으며 그대로 실행할 수 있는가" 기준으로 정렬했다.
  */
 /**
- * 유형을 한글로 적는다.
+ * 케이스 종류를 적는다 — **수행 결과가 아니다.**
  *
- * `Pass` / `Fail` 을 그대로 내보냈더니 **수행 결과**로 읽혔다. 아직 아무것도
- * 실행하지 않았는데 이미 "Pass" 라고 적혀 있으니 당연한 오해다.
- * 이 칸은 "어떤 종류의 케이스인가"(정상 흐름·실패 흐름·경계값)를 뜻한다.
- * 실제 결과는 아래 `수행 결과` 빈 칸에 QA 가 적는다.
+ * 처음에는 `Pass` / `Fail` 을 그대로 내보냈다. 아직 아무것도 실행하지 않았는데
+ * 이미 "Pass" 라고 적혀 있으니 수행 결과로 읽혔다. 그래서 `정상` / `실패` 로
+ * 바꿨는데, 그 두 단어야말로 QA 가 결과를 적을 때 쓰는 말이라 오해가 그대로였다.
+ *
+ * 그래서 **결과로 읽힐 수 없는 이름**으로 다시 바꿨다. "오류 처리" 는 결과가
+ * 될 수 없고, 무엇을 검증하는 케이스인지도 그대로 말해준다.
+ * 실제 결과는 옆의 빈 `수행 결과` 칸에 QA 가 적는다.
  */
-const TYPE_LABEL = { Pass: '정상', Fail: '실패', 'Edge Case': '경계' };
+const TYPE_LABEL = { Pass: '기능 확인', Fail: '오류 처리', 'Edge Case': '경계값' };
+
+/* --------------------------------------------------------- 체크리스트 */
+
+const CHECKED = '☑';    // ☑
+const UNCHECKED = '☐';  // ☐
+
+/**
+ * TC 를 체크리스트로 내보낸다.
+ *
+ * QA 는 TC 를 "읽고 판단하는 문서"가 아니라 **하나씩 지워 나가는 목록**으로 쓴다.
+ * 화면에서 체크한 것(`_checked`)과 단계별로 체크한 것(`_checkedSteps`)을 그대로
+ * CSV 에 옮겨, 내보낸 파일에서도 어디까지 했는지 이어서 볼 수 있게 한다.
+ */
+const checkBox = (done) => (done ? CHECKED : UNCHECKED);
+
+/** 수행 단계를 "☐ 1. …" 형태의 체크 목록으로 만든다. */
+function stepChecklist(tc) {
+  const steps = Array.isArray(tc.steps) ? tc.steps : [];
+  const done = new Set(Array.isArray(tc._checkedSteps) ? tc._checkedSteps : []);
+  return steps.map((s, i) => `${checkBox(done.has(i))} ${i + 1}. ${s}`).join('\n');
+}
 
 const COLUMNS = [
   { header: '연번', get: (tc) => tc._no || '' },
   { header: '요구사항 영역', get: (tc) => tc.area },
   { header: '영역 내 순서', get: (tc) => tc._ofArea || '' },
   { header: 'TC_ID', get: (tc) => tc.tc_id },
-  { header: 'TC 유형', get: (tc) => TYPE_LABEL[tc.type] || tc.type },
+  { header: '케이스 종류', get: (tc) => TYPE_LABEL[tc.type] || tc.type },
   { header: '중요도', get: (tc) => tc.priority },
+
+  // 체크리스트 — 화면에서 체크한 상태를 그대로 가져온다
+  { header: '확인', get: (tc) => checkBox(tc._checked) },
 
   // QA 가 실행하며 채우는 칸 — 비워서 내보낸다
   { header: '수행 결과', get: () => '' },
@@ -95,7 +122,7 @@ const COLUMNS = [
   { header: '테스트 시나리오', get: (tc) => tc.title || tc.scenario },
   { header: '검증 목적', get: (tc) => tc.objective },
   { header: '사전 조건', get: (tc) => bulleted(tc.precondition) },
-  { header: '수행 단계', get: (tc) => numbered(tc.steps) },
+  { header: '수행 단계', get: (tc) => stepChecklist(tc) },
   { header: '기대 결과', get: (tc) => bulleted(tc.expected) },
   { header: '요구사항 ID', get: (tc) => req(tc).id || tc.requirement_id },
   { header: '근거 문장', get: (tc) => req(tc).text || tc.source_text },
@@ -140,4 +167,7 @@ function csvFileName(prefix = 'spectotc-tc') {
   return `${prefix}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.csv`;
 }
 
-module.exports = { toCsv, csvFileName, COLUMNS, numbered, bulleted, organize, TYPE_LABEL };
+module.exports = {
+  toCsv, csvFileName, COLUMNS, numbered, bulleted, organize,
+  TYPE_LABEL, CHECKED, UNCHECKED, stepChecklist,
+};

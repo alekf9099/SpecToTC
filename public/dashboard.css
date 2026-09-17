@@ -436,7 +436,8 @@ textarea:focus-visible, .input:focus-visible, .select:focus-visible,
 .tc-table tbody tr { transition: background var(--dur) ease; }
 .tc-table tbody tr:hover { background: hsl(243 76% 63% / 0.10); }
 .tc-table tbody tr:last-child td { border-bottom: 0; }
-.col-id { width: 104px; } .col-type { width: 84px; }
+.col-check { width: 40px; }
+.col-id { width: 104px; } .col-type { width: 92px; }
 .col-priority { width: 78px; } .col-area { width: 136px; }
 .cell-id {
   white-space: nowrap; color: var(--on-indigo);
@@ -835,3 +836,69 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 
 /* 드롭존에 표시하는 실효 업로드 한도 */
 .upload-limit { color: var(--fg-subtle); }
+
+
+/* ------------------------------------------------------------ 체크리스트 */
+/*
+ * TC 표는 읽는 문서가 아니라 지워 나가는 목록이다. 확인한 행은 눈에서
+ * 빠지되 사라지지는 않게 — 흐리게만 하고 자리는 남긴다.
+ */
+.cell-check { text-align: center; white-space: nowrap; padding-top: 13px; }
+.cell-check input[type="checkbox"],
+.col-check input[type="checkbox"],
+.step-item input[type="checkbox"] {
+  width: 15px; height: 15px; margin: 0; cursor: pointer;
+  accent-color: var(--on-indigo, hsl(243 76% 63%));
+}
+.step-progress {
+  display: block; margin-top: 3px; font-size: 9.5px; letter-spacing: 0.02em;
+  color: var(--fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.tc-row.is-done { opacity: 0.52; }
+.tc-row.is-done .cell-title { text-decoration: line-through; text-decoration-thickness: 1px; }
+.tc-row.is-done:hover { opacity: 0.8; }
+
+.step-list { list-style: none; padding-left: 0; counter-reset: step; }
+.step-item { counter-increment: step; }
+.step-item label {
+  display: grid; grid-template-columns: 15px auto 1fr; gap: 8px;
+  align-items: start; cursor: pointer; padding: 2px 0;
+}
+.step-item label::after { content: none; }
+.step-item label > span::before {
+  content: counter(step) ". "; color: var(--fg-subtle); font-variant-numeric: tabular-nums;
+}
+.step-item input { margin-top: 3px; }
+.step-item.is-done > label > span { opacity: 0.55; text-decoration: line-through; }
+
+.todo-toggle {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 11px; font-size: 12px; color: var(--fg-muted);
+  background: var(--sunken); border: 1px solid var(--border); border-radius: 999px;
+}
+.todo-toggle input { width: 14px; height: 14px; margin: 0; cursor: pointer; }
+.todo-toggle:has(input:checked) { color: var(--on-indigo); border-color: hsl(243 76% 63% / 0.45); }
+
+.check-progress {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 9px 13px;
+  background: var(--sunken); border: 1px solid var(--border); border-radius: 12px;
+}
+.progress-bar {
+  flex: 1 1 140px; min-width: 120px; height: 6px; border-radius: 999px;
+  background: var(--border); overflow: hidden;
+}
+.progress-bar > i {
+  display: block; height: 100%; border-radius: 999px;
+  background: hsl(163 72% 45%); transition: width var(--dur) ease;
+}
+.progress-text { font-size: 12px; color: var(--fg-muted); white-space: nowrap; }
+.progress-text b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.progress-left { color: var(--fg-subtle); }
+
+@media (max-width: 720px) {
+  .check-progress { gap: 8px; padding: 8px 10px; }
+  .progress-bar { flex-basis: 100%; order: 3; }
+}
