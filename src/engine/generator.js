@@ -566,7 +566,11 @@ const DEFAULTS = {
   idPrefix: 'TC',
 };
 
-const TYPE_TAG = { [TYPE.PASS]: '정상', [TYPE.FAIL]: '실패', [TYPE.EDGE]: '경계' };
+/**
+ * 제목 앞머리 — 표의 `케이스 종류` 칸과 같은 이름을 쓴다.
+ * `[정상] …` / `[실패] …` 는 CSV 를 붙여 놓고 보면 수행 결과로 읽힌다.
+ */
+const TYPE_TAG = { [TYPE.PASS]: '기능 확인', [TYPE.FAIL]: '오류 처리', [TYPE.EDGE]: '경계값' };
 
 /** 이 TC 가 무엇을 대상으로 하는지 — 제목에서 케이스를 구분해 주는 부분 */
 function subjectOf(req) {

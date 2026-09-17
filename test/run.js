@@ -11,7 +11,9 @@ const {
   parseDocument, extractConstraints, splitConditionAction, extractRetryCount, detectArea,
 } = require('../src/engine/parser');
 const { generateFromSpec } = require('../src/engine');
-const { toCsv } = require('../src/csv');
+const {
+  toCsv, TYPE_LABEL, CHECKED, UNCHECKED, stepChecklist,
+} = require('../src/csv');
 const { diffSpecs } = require('../src/diff');
 const { createApp } = require('../src/app');
 
@@ -95,7 +97,7 @@ test('모든 TC 가 읽기 가능한 필수 필드를 가진다', () => {
   for (const tc of testCases) {
     assert.match(tc.tc_id, /^TC-[PFE]-\d{3}$/, `TC_ID 형식 오류: ${tc.tc_id}`);
     assert.ok(tc.area && tc.title && tc.objective, `빈 필드: ${tc.tc_id}`);
-    assert.match(tc.title, /^\[(정상|실패|경계)\] /, `제목에 유형 표기 없음: ${tc.title}`);
+    assert.match(tc.title, /^\[(기능 확인|오류 처리|경계값)\] /, `제목에 케이스 종류 표기 없음: ${tc.title}`);
     for (const field of ['precondition', 'steps', 'expected']) {
       assert.ok(Array.isArray(tc[field]) && tc[field].length > 0, `${field} 비어 있음: ${tc.tc_id}`);
       assert.ok(tc[field].every((x) => typeof x === 'string' && x.trim()), `${field} 항목 오류: ${tc.tc_id}`);
@@ -1591,7 +1593,6 @@ test('POST /api/analyze-site — 브라우저가 꺼져 있으면 이유를 알�
 
 /* --------------------------------------- TC 상세도 · 유형 표기 · 생략 없음 */
 
-const { TYPE_LABEL } = require('../src/csv');
 
 test('TC 상세 — 생략 부호(…)로 끊긴 내용이 없다', () => {
   // CSV·PDF 는 읽고 그대로 실행하는 문서다. "…" 로 끊기면 무엇을 하라는지 알 수 없다.
@@ -1634,27 +1635,96 @@ test('TC 상세 — 사전 조건·검증 목적이 완결된 문장이다', () 
   });
 });
 
-test('CSV — 유형이 수행 결과처럼 보이지 않는다', () => {
-  // Pass/Fail 을 그대로 내보내면 "이미 통과한 것" 으로 읽힌다.
-  // 이 칸은 케이스 종류이고, 결과는 QA 가 빈 칸에 적는다.
-  assert.deepEqual(TYPE_LABEL, { Pass: '정상', Fail: '실패', 'Edge Case': '경계' });
+test('케이스 종류는 수행 결과로 읽힐 수 없는 이름을 쓴다', () => {
+  // Pass/Fail 을 그대로 내보내면 "이미 통과한 것" 으로 읽힌다. 그래서 정상/실패 로
+  // 바꿨는데, 그 두 단어야말로 QA 가 **결과**를 적을 때 쓰는 말이라 오해가 그대로였다.
+  // 그래서 결과가 될 수 없는 이름으로 다시 바꿨다. 결과 어휘가 다시 들어오면 실패한다.
+  const VERDICT_WORDS = ['정상', '실패', 'Pass', 'Fail', '통과', '성공', 'OK', 'NG'];
+  // 표의 종류 칸뿐 아니라 제목 앞머리("[실패] …")도 CSV 에서 결과로 읽혔다
+  const titleTags = [...new Set(generateFromSpec(SAMPLE).testCases
+    .map((tc) => (String(tc.title).match(/^\[([^\]]+)\]/) || [])[1])
+    .filter(Boolean))];
+  assert.equal(titleTags.length, 3, titleTags.join(', '));
+
+  [...Object.values(TYPE_LABEL), ...titleTags].forEach((label) => {
+    VERDICT_WORDS.forEach((word) => {
+      assert.ok(!label.includes(word), `"${label}" 은 수행 결과로 읽힌다 (${word})`);
+    });
+  });
 
   const { testCases } = generateFromSpec(SAMPLE);
   const csv = toCsv(testCases, { bom: false, excel: false });
   const header = csv.trim().split(String.fromCharCode(10))[0];
 
-  assert.ok(header.includes('TC 유형'), header);
+  assert.ok(header.includes('케이스 종류'), header);
+  assert.ok(!header.includes('TC 유형'), '"유형" 은 결과 칸으로 오해된다');
   assert.ok(header.includes('수행 결과'), '결과를 적을 빈 칸이 없다');
   assert.ok(header.includes('수행일') && header.includes('담당자') && header.includes('비고'));
 
-  // 본문에 Pass/Fail 영문이 유형 칸으로 나가지 않는다
-  const firstRow = csv.trim().split(String.fromCharCode(10))[1];
-  const cells = firstRow.split(',');
-  assert.ok(['정상', '실패', '경계'].includes(cells[4]), `유형 칸 값: ${cells[4]}`);
+  // 본문에 Pass/Fail 영문이 종류 칸으로 나가지 않는다
+  const cells = csv.trim().split(String.fromCharCode(10))[1].split(',');
+  assert.ok(Object.values(TYPE_LABEL).includes(cells[4]), `종류 칸 값: ${cells[4]}`);
 
   // 결과·수행일·담당자·비고는 비어 있어야 한다 (QA 가 채운다)
-  assert.equal(cells[6], '', '수행 결과가 미리 채워져 있다');
-  assert.equal(cells[7], '', '수행일이 미리 채워져 있다');
+  const at = (name) => header.split(',').indexOf(name);
+  assert.equal(cells[at('수행 결과')], '', '수행 결과가 미리 채워져 있다');
+  assert.equal(cells[at('수행일')], '', '수행일이 미리 채워져 있다');
+});
+
+test('케이스 종류 이름이 화면·CSV·PDF 에서 갈라지지 않는다', () => {
+  // 브라우저 쪽 정의는 public/tc-labels.js 한 곳뿐이다. 클래식 <script> 는 전역을
+  // 공유해서 같은 const 를 두 파일에 두면 페이지가 통째로 죽는다 — 실제로 한 번 죽었다.
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
+  const labels = Object.values(TYPE_LABEL);
+
+  const shared = read('tc-labels.js');
+  labels.forEach((label) => {
+    assert.ok(shared.includes(label), `tc-labels.js 에 "${label}" 이 없다`);
+  });
+
+  ['dashboard.js', 'report.js'].forEach((file) => {
+    assert.ok(
+      !/^\s*const TYPE_(LABEL|CLASS|BADGE)\s*=/m.test(read(file)),
+      `${file}: TYPE_* 를 다시 선언하면 전역이 충돌해 페이지가 죽는다`,
+    );
+  });
+
+  // 읽는 순서가 어긋나도 죽는다 — tc-labels.js 가 이들보다 먼저 와야 한다
+  const html = read('index.html');
+  const at = (f) => html.indexOf(`./${f}`);
+  ['dashboard.js', 'report.js'].forEach((file) => {
+    assert.ok(at('tc-labels.js') > -1 && at('tc-labels.js') < at(file), `tc-labels.js 가 ${file} 보다 뒤에 있다`);
+  });
+
+  // 필터 칩도 같은 이름을 써야 한다. 표는 "오류 처리" 인데 칩은 "실패" 면 같은 것으로 안 보인다.
+  labels.forEach((label) => {
+    assert.ok(html.includes(`>${label}<`), `index.html 필터 칩에 "${label}" 이 없다`);
+  });
+});
+
+test('CSV 는 체크리스트로 나간다 — 확인 칸과 단계별 네모', () => {
+  // QA 는 TC 를 읽고 판단하는 문서가 아니라 하나씩 지워 나가는 목록으로 쓴다.
+  const { testCases } = generateFromSpec(SAMPLE);
+  const tcs = testCases.slice(0, 2).map((tc, i) => (
+    i === 0 ? { ...tc, _checked: true, _checkedSteps: [0, 1] } : tc
+  ));
+
+  const csv = toCsv(tcs, { bom: false, excel: false });
+  const header = csv.trim().split(String.fromCharCode(10))[0].split(',');
+  assert.ok(header.includes('확인'), header.join(','));
+
+  // 확인 칸은 체크 상태를 그대로 옮긴다
+  assert.ok(csv.includes(CHECKED), '체크한 TC 가 ☑ 로 나가지 않았다');
+  assert.ok(csv.includes(UNCHECKED), '체크하지 않은 항목이 ☐ 로 나가지 않았다');
+
+  // 수행 단계는 번호 앞에 네모가 붙는다
+  const first = stepChecklist(tcs[0]).split(String.fromCharCode(10));
+  assert.match(first[0], new RegExp(`^${CHECKED} 1\\. `), first[0]);
+  assert.match(first[2], new RegExp(`^${UNCHECKED} 3\\. `), first[2]);
+
+  // 체크 정보가 없는 TC 도 깨지지 않고 전부 미확인으로 나간다
+  assert.ok(stepChecklist(tcs[1]).split(String.fromCharCode(10)).every((l) => l.startsWith(UNCHECKED)));
+  assert.equal(stepChecklist({}), '');
 });
 
 /* ------------------------------- 모든 생성 경로가 같은 문구 규칙을 따르는지 */

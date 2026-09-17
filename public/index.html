@@ -14,7 +14,7 @@
       <span class="logo">TC</span>
       <div>
         <h1>SpecToTC</h1>
-        <p>기획서(SRS) → 테스트케이스 자동 생성 · Pass / Fail / Edge Case</p>
+        <p>기획서(SRS) → 테스트케이스 자동 생성 · 기능 확인 / 오류 처리 / 경계값</p>
       </div>
     </div>
     <div class="topbar-right">
@@ -52,9 +52,9 @@
           placeholder="예) 비밀번호는 8자 이상 20자 이하로 입력해야 한다.&#10;예) 결제 승인이 실패하면 주문을 확정하지 않고 실패 사유를 안내한다."></textarea>
 
         <div class="options">
-          <label><input type="checkbox" id="optPass" checked /> Pass</label>
-          <label><input type="checkbox" id="optFail" checked /> Fail</label>
-          <label><input type="checkbox" id="optEdge" checked /> Edge Case</label>
+          <label title="기능이 명세대로 되는지 보는 케이스"><input type="checkbox" id="optPass" checked /> 기능 확인</label>
+          <label title="오류·예외 상황을 제대로 막는지 보는 케이스"><input type="checkbox" id="optFail" checked /> 오류 처리</label>
+          <label title="기준값 앞뒤에서 판정이 갈리는지 보는 케이스"><input type="checkbox" id="optEdge" checked /> 경계값</label>
           <label class="opt-ai" title="ANTHROPIC_API_KEY 가 설정된 경우에만 동작합니다.">
             <input type="checkbox" id="optAI" /> Claude 보강
           </label>
@@ -170,9 +170,9 @@
       <div class="filters">
         <div class="chips" id="typeFilters">
           <button class="chip is-active" data-type="all">전체</button>
-          <button class="chip chip-pass" data-type="Pass">정상</button>
-          <button class="chip chip-fail" data-type="Fail">실패</button>
-          <button class="chip chip-edge" data-type="Edge Case">경계</button>
+          <button class="chip chip-pass" data-type="Pass" title="기능이 명세대로 되는지 보는 케이스">기능 확인</button>
+          <button class="chip chip-fail" data-type="Fail" title="오류·예외 상황을 제대로 막는지 보는 케이스">오류 처리</button>
+          <button class="chip chip-edge" data-type="Edge Case" title="기준값 앞뒤에서 판정이 갈리는지 보는 케이스">경계값</button>
         </div>
         <select id="priorityFilter" class="select">
           <option value="all">중요도 전체</option>
@@ -184,14 +184,20 @@
           <option value="all">영역 전체</option>
         </select>
         <input id="searchInput" class="input" type="search" placeholder="시나리오/기대결과 검색" />
+        <label class="todo-toggle" title="아직 확인하지 않은 테스트케이스만 남깁니다">
+          <input type="checkbox" id="todoOnly" /> 미확인만
+        </label>
       </div>
+
+      <div id="checkProgress" class="check-progress" hidden></div>
 
       <div class="table-wrap" id="tcView">
         <table class="tc-table">
           <thead>
             <tr>
+              <th class="col-check"><input type="checkbox" id="checkAll" title="보이는 테스트케이스 전체 확인" aria-label="전체 확인" disabled /></th>
               <th class="col-id">TC_ID</th>
-              <th class="col-type" title="케이스 종류 — 수행 결과가 아닙니다">TC 유형</th>
+              <th class="col-type" title="어떤 종류의 케이스인지 — 수행 결과가 아닙니다. 결과는 CSV 의 [수행 결과] 칸에 적습니다">케이스 종류</th>
               <th class="col-priority">중요도</th>
               <th class="col-area">영역</th>
               <th class="col-scenario">테스트 시나리오</th>
@@ -199,7 +205,7 @@
             </tr>
           </thead>
           <tbody id="tcBody">
-            <tr class="empty-row"><td colspan="6">좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
+            <tr class="empty-row"><td colspan="7">좌측에 기획서를 붙여넣거나 파일을 끌어다 놓고 <b>테스트케이스 생성</b>을 누르세요.</td></tr>
           </tbody>
         </table>
       </div>
@@ -223,6 +229,8 @@
     </section>
   </main>
 
+  <script src="./tc-labels.js"></script>
+  <script src="./checklist.js"></script>
   <script src="./extract-client.js"></script>
   <script src="./web-form-editor.js"></script>
   <script src="./web-view.js"></script>

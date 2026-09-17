@@ -89,6 +89,16 @@ const REPORT_CSS = `
   .tc-id { font: 11px/1.5 ui-monospace, Consolas, monospace; font-weight: 650; }
   .tc-title { font-weight: 600; font-size: 12px; }
   .tc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
+  /* 인쇄해서 손으로 체크하는 목록 — 번호 대신 네모를 그린다 */
+  ol.check { list-style: none; padding-left: 0; margin: 4px 0; counter-reset: ck; }
+  ol.check li { counter-increment: ck; position: relative; padding-left: 30px; margin-bottom: 3px; }
+  ol.check li::before {
+    content: ""; position: absolute; left: 0; top: 2px;
+    width: 9px; height: 9px; border: 1px solid #8b94a3; border-radius: 2px;
+  }
+  ol.check li::after {
+    content: counter(ck) "."; position: absolute; left: 14px; top: 0; color: #5b6471;
+  }
   .tc-src { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #d6dae1; color: #5b6471; font-size: 10.5px; }
 
   .page-break { break-before: page; }
@@ -114,12 +124,21 @@ function reportProjectName() {
   return '기획서';
 }
 
-const TYPE_BADGE = { Pass: 'pass', Fail: 'fail', 'Edge Case': 'edge' };
+/* TYPE_BADGE·TYPE_LABEL 은 tc-labels.js 에 있다 */
 
 function reportList(items, ordered) {
   if (!Array.isArray(items) || !items.length) return '<p class="empty">-</p>';
   const tag = ordered ? 'ol' : 'ul';
   return `<${tag}>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</${tag}>`;
+}
+
+/**
+ * 인쇄한 종이에 손으로 체크할 수 있게 수행 단계 앞에 네모를 그린다.
+ * 이 문서는 화면에서 읽기보다 출력해서 들고 다니며 쓰는 쪽이 많다.
+ */
+function reportChecklist(items) {
+  if (!Array.isArray(items) || !items.length) return '<p class="empty">-</p>';
+  return `<ol class="check">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>`;
 }
 
 /** 문서 요약 파트 */
@@ -318,8 +337,11 @@ function reportTestCaseSection(testCases) {
   }, {});
 
   const stats = [
-    ['총 TC', testCases.length], ['Pass', byType.Pass || 0], ['Fail', byType.Fail || 0],
-    ['Edge', byType['Edge Case'] || 0], ['High', byPriority.High || 0],
+    ['총 TC', testCases.length],
+    [TYPE_LABEL.Pass, byType.Pass || 0],
+    [TYPE_LABEL.Fail, byType.Fail || 0],
+    [TYPE_LABEL['Edge Case'], byType['Edge Case'] || 0],
+    ['High', byPriority.High || 0],
   ].map(([k, v]) => `<span class="stat">${esc(k)} <b>${v}</b></span>`).join('');
 
   const cards = testCases.map((tc) => {
@@ -327,7 +349,7 @@ function reportTestCaseSection(testCases) {
     return `<div class="tc">
       <div class="tc-head">
         <span class="tc-id">${esc(tc.tc_id)}</span>
-        <span class="badge badge-${TYPE_BADGE[tc.type] || 'low'}">${esc(tc.type)}</span>
+        <span class="badge badge-${TYPE_BADGE[tc.type] || 'low'}">${esc(TYPE_LABEL[tc.type] || tc.type)}</span>
         <span class="badge badge-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span>
         <span class="tag">${esc(tc.area)}</span>
         ${tc.origin === 'ai' ? '<span class="tag">AI 보강</span>' : ''}
@@ -336,7 +358,7 @@ function reportTestCaseSection(testCases) {
       <p class="note">${esc(tc.objective || '')}</p>
       <div class="tc-grid">
         <div><h4>사전 조건</h4>${reportList(tc.precondition)}</div>
-        <div><h4>수행 단계</h4>${reportList(tc.steps, true)}</div>
+        <div><h4>수행 단계</h4>${reportChecklist(tc.steps)}</div>
         <div><h4>기대 결과</h4>${reportList(tc.expected)}</div>
       </div>
       <p class="tc-src">근거 — <span class="mono">${esc(req.id || tc.requirement_id || '-')}</span>${
