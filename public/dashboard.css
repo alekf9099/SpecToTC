@@ -466,6 +466,7 @@ tr.prio-Low  td:first-child { box-shadow: inset 3px 0 0 var(--fg-faint); }
 .pill-low  { color: var(--fg-muted);  background: var(--muted);  border-color: var(--border); }
 .pill-ai   { color: var(--on-violet); background: hsl(263 74% 65% / 0.15); border-color: hsl(263 74% 65% / 0.34); margin-left: 5px; }
 .pill-live { color: var(--on-mint); background: hsl(163 72% 50% / 0.15); border-color: hsl(163 72% 50% / 0.34); margin-left: 5px; }
+.pill-change { color: var(--on-amber, hsl(38 92% 45%)); background: hsl(38 92% 55% / 0.15); border-color: hsl(38 92% 55% / 0.36); margin-left: 5px; }
 
 /* -------------------------------------------------------------------- diff */
 .diff-result { margin-top: 14px; overflow: auto; font-size: 12px; }

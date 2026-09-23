@@ -1727,6 +1727,126 @@ test('CSV 는 체크리스트로 나간다 — 확인 칸과 단계별 네모', 
   assert.equal(stepChecklist({}), '');
 });
 
+
+/* ------------------------- QA 가 실제로 확인하는 체크 패턴이 TC 로 나오는지 */
+
+test('글자수 상한 — 붙여넣기·한글/이모지까지 보는 전용 TC 를 만든다', () => {
+  const { testCases } = generateFromSpec('- 닉네임은 최대 12자까지 입력할 수 있다.');
+  const tc = testCases.find((t) => t.tags.includes('length'));
+  assert.ok(tc, testCases.map((t) => t.title).join(' | '));
+
+  const steps = tc.steps.join(' ');
+  // 키보드 입력만 막아 둔 화면은 붙여넣기에서 뚫린다 — 이 단계가 없으면 TC 의 의미가 없다
+  assert.match(steps, /붙여넣기/);
+  assert.match(steps, /한글|이모지/);
+  // 저장 후 다시 불러와야 서버에서 잘렸는지 알 수 있다
+  assert.match(steps, /저장/);
+  assert.match(tc.expected.join(' '), /12글자/);
+
+  // 같은 제약으로 일반 경계값 TC 가 또 나오면 안 된다 (하나가 개수 상한에 밀려 잘렸다)
+  const boundaries = testCases.filter((t) => t.tags.includes('boundary'));
+  assert.equal(boundaries.length, 1, boundaries.map((t) => t.title).join(' | '));
+});
+
+test('따옴표 친 문구는 글자 그대로 대조하는 TC 가 된다', () => {
+  const { testCases } = generateFromSpec(
+    '- 로그인 실패 시 "아이디 또는 비밀번호를 확인해 주세요" 문구를 노출한다.',
+  );
+  const tc = testCases.find((t) => t.tags.includes('copy'));
+  assert.ok(tc, testCases.map((t) => t.title).join(' | '));
+
+  // 기대 결과에 문구가 통째로 들어가야 대조가 된다. 요약하면 TC 로서 쓸모가 없다.
+  assert.ok(
+    tc.expected.some((e) => e.includes('아이디 또는 비밀번호를 확인해 주세요')),
+    tc.expected.join(' | '),
+  );
+  assert.match(tc.steps.join(' '), /띄어쓰기/);
+
+  // API 키·코드값은 화면 문구가 아니므로 문구 TC 를 만들지 않는다
+  const noise = generateFromSpec('- 요청 헤더에 "X-Api-Key" 를 넣어 호출한다.');
+  assert.ok(!noise.testCases.some((t) => t.tags.includes('copy')), '코드값으로 문구 TC 를 만들었다');
+});
+
+test('등록 기능에는 중복 등록 TC 가 붙는다', () => {
+  const { testCases } = generateFromSpec('- 사용자는 배송지를 등록한다.');
+  const tc = testCases.find((t) => t.title.includes('이미 등록된 값'));
+  assert.ok(tc, testCases.map((t) => t.title).join(' | '));
+
+  // 대소문자·앞뒤 공백만 다른 값이 가장 자주 뚫리는 경로다
+  assert.match(tc.steps.join(' '), /대소문자/);
+  assert.match(tc.steps.join(' '), /공백/);
+  // "막았다" 로 끝나면 안 된다 — 실제로 몇 건 남았는지 세야 한다
+  assert.match(tc.steps.join(' '), /센다|확인한다/);
+  assert.match(tc.expected.join(' '), /1건/);
+
+  // 서술문이 등록 TC 를 끌고 오면 안 된다 ("작성자 홍길동" 이 요구사항이 됐던 적이 있다)
+  assert.equal(parseDocument('작성자 홍길동\n').requirements.length, 0);
+});
+
+test('기획서 변경 — 문구·기준값·신규·삭제마다 확인 TC 가 나온다', () => {
+  const before = ['## 1. 로그인',
+    '- 비밀번호는 8자 이상 20자 이하로 입력해야 한다.',
+    '- 로그인 실패 시 "아이디 또는 비밀번호가 올바르지 않습니다" 문구를 노출한다.',
+    '- 최대 2회 재시도한다.',
+  ].join('\n');
+  const after = ['## 1. 로그인',
+    '- 비밀번호는 8자 이상 30자 이하로 입력해야 한다.',
+    '- 로그인 실패 시 "아이디 또는 비밀번호를 확인해 주세요" 문구를 노출한다.',
+    '- 간편 로그인(카카오) 버튼을 눌러 로그인할 수 있다.',
+  ].join('\n');
+
+  const d = diffSpecs(before, after);
+  const tags = (t) => new Set(t.tags);
+  const has = (tag) => d.changeTestCases.filter((t) => tags(t).has(tag));
+
+  // 4. 문구 변경 — 새 문구가 나오는 것만으로는 부족하다. 옛 문구가 안 남았는지가 핵심이다.
+  const copy = has('copy')[0];
+  assert.ok(copy, d.changeTestCases.map((t) => t.title).join(' | '));
+  assert.ok(copy.expected.some((e) => e.includes('아이디 또는 비밀번호를 확인해 주세요')));
+  assert.ok(
+    copy.expected.some((e) => e.includes('올바르지 않습니다') && /더는|않는다/.test(e)),
+    `옛 문구 잔존 확인이 없다: ${copy.expected.join(' | ')}`,
+  );
+
+  // 5. 결과값 변경 — 실제로 바뀐 제약(20→30)만 본다. 안 바뀐 8 을 집으면 엉뚱한 값을 넣게 된다.
+  const value = has('boundary')[0];
+  assert.ok(value, '기준값 변경 TC 가 없다');
+  assert.match(value.title, /20글자 이하 → 30글자 이하/);
+  const vSteps = value.steps.join(' ');
+  assert.ok(/31글자/.test(vSteps) && /30글자/.test(vSteps) && /29글자/.test(vSteps), vSteps);
+  assert.ok(!/ 9글자|7글자/.test(vSteps), `안 바뀐 제약(8글자)의 경계를 넣고 있다: ${vSteps}`);
+  assert.ok(value.expected.some((e) => /옛 기준/.test(e)), value.expected.join(' | '));
+
+  // 6·7. 신규 기능 — 존재 확인과 **경로 반영**은 다른 TC 다. 경로가 빠지는 것이 가장 흔한 누락이다.
+  const added = has('new-feature');
+  assert.equal(added.length, 2, added.map((t) => t.title).join(' | '));
+  const path = added.find((t) => tags(t).has('navigation'));
+  assert.ok(path, '진입 경로 TC 가 없다');
+  assert.match(path.steps.join(' '), /메뉴|네비게이션/);
+  assert.match(path.steps.join(' '), /주소를 직접 입력|딥링크/);
+
+  // 삭제 — 화면에서 가린 것과 실제로 막은 것은 다르다
+  const removed = has('removed')[0];
+  assert.ok(removed, '삭제 확인 TC 가 없다');
+  assert.match(removed.steps.join(' '), /예전 주소|API/);
+
+  // 변경 확인 TC 가 일반 회귀 TC 보다 앞에 온다 — QA 가 제일 먼저 볼 것이다
+  assert.deepEqual(
+    d.regressionTestCases.slice(0, d.changeTestCases.length).map((t) => t.tc_id),
+    d.changeTestCases.map((t) => t.tc_id),
+  );
+
+  // 표·CSV·PDF 가 그대로 쓰이려면 일반 TC 와 모양이 같아야 한다
+  d.changeTestCases.forEach((t) => {
+    assert.match(t.tc_id, /^TC-CH-[PFE]-\d{3}$/, t.tc_id);
+    ['area', 'title', 'objective'].forEach((f) => assert.ok(t[f], `${t.tc_id}: ${f} 없음`));
+    ['precondition', 'steps', 'expected'].forEach((f) => {
+      assert.ok(Array.isArray(t[f]) && t[f].length, `${t.tc_id}: ${f} 비어 있음`);
+    });
+    assert.ok(t.tags.includes('regression'), t.tc_id);
+  });
+});
+
 /* ------------------------------- 모든 생성 경로가 같은 문구 규칙을 따르는지 */
 
 test('모든 생성 경로 — 수행 단계의 주어는 QA, 생략 부호 없음', () => {
@@ -1779,12 +1899,26 @@ test('모든 생성 경로 — 수행 단계의 주어는 QA, 생략 부호 없�
       observations: { consoleErrors: [], pageErrors: [], blockedRequests: 0 },
     }),
     '실행 검증': buildLiveTestCases({ page: { url: 'https://shop.example.com/' } }, [run]),
+    '기획서 변경': diffSpecs(
+      ['## 1. 로그인',
+        '- 비밀번호는 8자 이상 20자 이하로 입력해야 한다.',
+        '- 로그인 실패 시 "아이디 또는 비밀번호가 올바르지 않습니다" 문구를 노출한다.',
+        '- 최대 2회 재시도한다.',
+      ].join('\n'),
+      ['## 1. 로그인',
+        '- 비밀번호는 8자 이상 30자 이하로 입력해야 한다.',
+        '- 로그인 실패 시 "아이디 또는 비밀번호를 확인해 주세요" 문구를 노출한다.',
+        '- 간편 로그인(카카오) 버튼을 눌러 로그인할 수 있다.',
+      ].join('\n'),
+    ).changeTestCases,
   };
 
   // TC 를 실제로 읽는 사람은 기획서를 안 본 QA 다. 세 가지가 읽기를 막았다.
   //   1) 줄마다 반복되는 "QA 는" — 수행 단계는 전부 QA 의 행동이라 정보가 0 이다
   //   2) "비밀번호 에", "4초 을" — 값을 문장에 끼워 넣으면서 조사를 고정으로 적어 생긴 오류
   //   3) "멱등", "유령 데이터", 맨숫자 상태 코드처럼 설명 없이 나오는 개발 용어
+  // 지시어 "이/그/저" 도 이 모양이라 가끔 잘못 걸린다. 그때는 문장을 고치는 편이
+  // 낫다 — "이 변경" 보다 "이번 변경" 이 어차피 더 분명하다.
   const DANGLING_JOSA = /[가-힣0-9)"] (을|를|이|가|은|는|에|의|으로|과|와)( |$)/;
   const JARGON = ['멱등', '유령 데이터', '스로틀링', '스택 트레이스'];
   const BARE_STATUS = /(?<![(\d])(401|403|404|500)/;

@@ -163,7 +163,8 @@ function renderTable() {
       <tr class="tc-row prio-${esc(tc.priority)}${open ? ' is-open' : ''}${done ? ' is-done' : ''}" data-tc="${esc(tc.tc_id)}" tabindex="0">
         <td class="cell-check"><input type="checkbox" class="tc-check" data-tc="${esc(tc.tc_id)}"${done ? ' checked' : ''} aria-label="${esc(tc.tc_id)} 확인" />${partial ? `<span class="step-progress" title="수행 단계 ${doneSteps}/${stepCount} 확인">${doneSteps}/${stepCount}</span>` : ''}</td>
         <td class="cell-id">${esc(tc.tc_id)}${tc.origin === 'ai' ? '<span class="pill pill-ai">AI</span>' : ''}${
-      tc.origin === 'live' ? '<span class="pill pill-live" title="브라우저로 실제 실행해 관측한 결과">실측</span>' : ''}</td>
+      tc.origin === 'live' ? '<span class="pill pill-live" title="브라우저로 실제 실행해 관측한 결과">실측</span>' : ''}${
+      tc.origin === 'change' ? '<span class="pill pill-change" title="이번 개정에서 바뀐 부분이 반영됐는지 보는 TC">변경</span>' : ''}</td>
         <td><span class="pill pill-${TYPE_CLASS[tc.type] || 'low'}" title="${esc(TYPE_HINT)}">${esc(TYPE_LABEL[tc.type] || tc.type)}</span></td>
         <td><span class="pill pill-${String(tc.priority).toLowerCase()}">${esc(tc.priority)}</span></td>
         <td class="cell-area">${esc(tc.area)}</td>
@@ -578,7 +579,8 @@ async function runDiff() {
     setStatus(
       `변경 추출 완료 — 추가 ${data.summary.added} / 수정 ${data.summary.modified} / 삭제 ${data.summary.removed}\n` +
       `영향 영역: ${data.summary.impactedAreas.join(', ') || '없음'}\n` +
-      `우측 표에 회귀 대상 TC ${state.testCases.length}건을 표시했습니다.`,
+      `우측 표에 TC ${state.testCases.length}건 — 그중 [변경] 표시 ${
+        (data.changeTestCases || []).length}건이 "바뀐 부분이 반영됐는지" 보는 TC 입니다.`,
       'ok'
     );
   } catch (err) {

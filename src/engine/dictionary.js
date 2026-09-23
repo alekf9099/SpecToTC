@@ -72,6 +72,18 @@ const CATEGORIES = [
     ],
   },
   {
+    key: 'DUPLICATE',
+    label: '중복 등록',
+    weight: 3,
+    patterns: [
+      /중복|이미\s*(등록|가입|존재|사용)|같은\s*(값|이름|아이디|번호)|유일|고유|한\s*번만/,
+      // 명사만으로는 안 된다. "작성자 홍길동" 같은 서술문이 통째로 요구사항이 됐다.
+      // 실제로 무언가를 만들어 내는 **동작**일 때만 잡는다.
+      /(등록|가입|신청|추가|생성|저장|작성|업로드|발급)\s*(한다|합니다|된다|됩니다|할\s*수|하면|하거나|하려|시)/,
+      /(duplicate|already (exists|registered|used)|unique|register|sign ?up|create|submit|add)/i,
+    ],
+  },
+  {
     key: 'ERROR',
     label: '오류/예외 처리',
     weight: 4,
