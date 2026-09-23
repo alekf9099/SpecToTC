@@ -111,6 +111,29 @@ function toNumber(raw) {
  * 문장에서 경계값 제약을 추출한다.
  * 반환: [{ value, unit, op, source }]
  */
+/**
+ * 따옴표로 묶인 문구를 뽑는다 — **화면에 글자 그대로 나와야 하는 값**.
+ *
+ * 기획서에 `"아이디 또는 비밀번호를 확인해 주세요" 문구를 노출한다` 라고 적혀 있으면
+ * QA 가 볼 것은 "문구가 나오는가" 가 아니라 **"이 문장이 한 글자도 다르지 않은가"** 다.
+ * 조사 하나, 띄어쓰기 하나가 달라도 기획과 다른 화면이고, 이건 FRONT 에서 가장 자주
+ * 새는 구멍이다. 그래서 문자열을 따로 들고 있다가 TC 의 기대 결과에 그대로 박는다.
+ *
+ * 따옴표 안이 통째로 영문 식별자(API 키·코드값)면 화면 문구가 아니므로 거른다.
+ */
+const LITERAL_RE = /[“"']([^“”"'\n]{2,60})[”"']|「([^」\n]{2,60})」/g;
+
+function extractLiterals(text) {
+  const out = [];
+  for (const m of String(text).matchAll(LITERAL_RE)) {
+    const value = (m[1] || m[2] || '').trim();
+    if (!value) continue;
+    if (/^[A-Za-z0-9_.\-/]+$/.test(value)) continue;  // API 키·코드값은 화면 문구가 아니다
+    if (!out.includes(value)) out.push(value);
+  }
+  return out;
+}
+
 function extractConstraints(text) {
   const found = [];
   const push = (value, unit, op, source) => {
@@ -231,6 +254,7 @@ function parseDocument(rawText) {
         const { condition, action } = splitConditionAction(statement);
         const constraints = extractConstraints(statement);
         const retryCount = extractRetryCount(statement);
+        const literals = extractLiterals(statement);
 
         // 카테고리도, 제약도, 조건절도 없는 순수 서술문은 TC 대상에서 제외
         if (!categories.length && !constraints.length && !condition) continue;
@@ -248,6 +272,7 @@ function parseDocument(rawText) {
           action,
           constraints,
           retryCount,
+          literals,
         });
       }
     }
@@ -268,6 +293,7 @@ function parseDocument(rawText) {
 }
 
 module.exports = {
+  extractLiterals,
   parseDocument,
   normalizeText,
   splitStatements,

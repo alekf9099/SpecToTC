@@ -101,6 +101,26 @@ function josa(word, kind = '을') {
   return `${s}${hasFinal ? withFinal : withoutFinal}`;
 }
 
+/**
+ * 따옴표 친 문구 + 조사 — `"확인해 주세요"를` 처럼 붙인다.
+ *
+ * josa() 에 따옴표까지 넘기면 마지막 글자가 따옴표라 받침 판정이 늘 빗나간다.
+ * 따옴표는 밖에 두고 조사는 안쪽 글자로 고른다.
+ */
+function quoted(text, kind = '을') {
+  const body = String(text == null ? '' : text).trim();
+  if (!body) return '';
+  return `"${body}"${josa(body, kind).slice(body.length)}`;
+}
+
+/** 여러 문구를 `"a" / "b"를` 처럼 묶는다 — 조사는 마지막 문구로 고른다 */
+function quotedList(list, kind = '을') {
+  const items = (list || []).map((t) => String(t).trim()).filter(Boolean);
+  if (!items.length) return '';
+  const last = items[items.length - 1];
+  return `${items.map((t) => `"${t}"`).join(' / ')}${josa(last, kind).slice(last.length)}`;
+}
+
 /** 목적어 + 을/를 — 가장 많이 쓰는 형태라 이름을 따로 둔다. */
 const withObject = (value) => josa(value, '을');
 
@@ -139,6 +159,9 @@ function formatCriterion(c) {
 }
 
 const OP_TEXT = { '>=': '이상', '<=': '이하', '>': '초과', '<': '미만' };
+
+/** 글자 수를 세는 단위 — 여기에 걸리면 길이 전용 TC 를 따로 만든다 */
+const LENGTH_UNITS = new Set(['자', '글자', '바이트', 'byte', 'Byte', 'bytes', '자리']);
 
 const ACCEPT = '받아들이고 정상 처리한다';
 const REJECT = '거부하고 안내 문구를 표시한다';
@@ -179,6 +202,30 @@ function passCases(req) {
     ],
     tags: ['happy-path'],
   }];
+
+  // 기획서가 화면 문구를 따옴표로 못 박아 뒀다면, 그 문장이 한 글자도 다르지 않은지
+  // 확인하는 것이 QA 의 일이다. 조사 하나·띄어쓰기 하나가 FRONT 에서 가장 자주 샌다.
+  if (req.literals && req.literals.length) {
+    const shown = req.literals.map((t) => `"${t}"`).join(' / ');
+    cases.push({
+      title: `화면 문구가 기획서와 글자 그대로 같은지 — ${shown}`,
+      objective: `${screen} 화면에 나오는 문구가 기획서에 적힌 ${quotedList(req.literals, '과')} 한 글자도 다르지 않은지 확인한다.`,
+      precondition: basePrecondition(req, '문구가 나오는 상황을 만들 수 있다 (오류 유발·빈 목록 등)'),
+      steps: [
+        step('진입', qa(`${screen} 화면에 진입한다`)),
+        step('실행', qa('해당 문구가 나오는 상황을 만든다')),
+        step('확인', qa(`화면의 문구를 복사해 기획서의 ${quotedList(req.literals, '과')} 나란히 놓고 비교한다`)),
+        step('확인', qa('띄어쓰기·조사·문장부호·줄바꿈까지 같은지 본다')),
+      ],
+      expected: req.literals.map((t) => sys(`화면에 ${quoted(t)} 글자 그대로 표시한다 (띄어쓰기·조사·문장부호 포함)`))
+        .concat([
+          '뒷부분이 잘리거나 말줄임 표시로 접히지 않고 전체가 보인다',
+          '같은 뜻의 다른 문구로 바뀌어 있지 않다',
+        ]),
+      generic: false,
+      tags: ['copy', 'front'],
+    });
+  }
 
   if (req.categories.includes('STATE')) {
     cases.push({
@@ -253,6 +300,23 @@ const FAIL_RECIPES = [
       sys('기능을 아예 보여주지 않거나, 권한 없음(401·403)으로 응답한다'),
       sys('로그인 화면이나 권한 안내 화면으로 이동시킨다'),
       sys('화면을 거치지 않고 API 를 직접 불러도 막는다'),
+    ],
+  },
+  {
+    key: 'DUPLICATE',
+    title: '이미 등록된 값으로 다시 등록',
+    objective: (screen) => `${screen} 에서 이미 있는 값으로 또 등록했을 때 막히고, 데이터가 두 벌 생기지 않는지 확인한다.`,
+    steps: (screen) => [
+      step('준비', qa(`${screen} 에서 정상 값으로 1건을 먼저 등록해 둔다`)),
+      step('입력', qa('방금 등록한 것과 똑같은 값을 그대로 다시 입력한다')),
+      step('실행', qa('저장·제출 버튼을 누른다')),
+      step('입력', qa('대소문자만 바꾼 값, 앞뒤에 공백을 붙인 값으로도 각각 다시 등록해 본다')),
+      step('확인', qa('목록이나 관리 화면에서 실제로 몇 건이 남았는지 센다')),
+    ],
+    expected: [
+      sys('이미 있는 값이라는 사유를 화면에 안내하고 등록을 막는다'),
+      sys('대소문자만 다르거나 앞뒤 공백만 다른 값도 같은 값으로 보고 막는다'),
+      sys('데이터를 2건으로 만들지 않는다 (목록에 1건만 남는다)'),
     ],
   },
   {
@@ -418,7 +482,12 @@ function edgeCases(req, limit) {
   const screen = screenOf(req);
   const cases = [];
 
+  // 글자수 기준은 아래 전용 TC 가 더 자세히 다룬다. 여기서 또 만들면 같은 제약으로
+  // TC 가 둘 생기고, 둘 중 하나가 개수 상한에 밀려 잘린다.
+  const lengthLimit = req.constraints.find((c) => LENGTH_UNITS.has(c.unit) && (c.op === '<=' || c.op === '<'));
+
   for (const c of req.constraints) {
+    if (c === lengthLimit) continue;
     const points = boundaryPoints(c);
     const criterion = `${fmt(c.value, c.unit)} ${OP_TEXT[c.op] || c.op}`;
     cases.push({
@@ -433,6 +502,35 @@ function edgeCases(req, limit) {
       ],
       expected: points.map((p) => sys(`${withObject(fmt(p.value, c.unit))} 넣으면 ${p.verdict}`)),
       tags: ['boundary'],
+    });
+  }
+
+  // 글자수 상한은 FRONT 에서 가장 자주 확인하는 항목인데, 일반 경계값 TC 는
+  // "3초 이하" 같은 시간 기준과 한데 섞여 무엇을 세라는 건지 드러나지 않았다.
+  // 글자 단위 기준은 따로 뽑아, 붙여넣기·한글·이모지처럼 실제로 뚫리는 경로까지 넣는다.
+  if (lengthLimit) {
+    const max = fmt(lengthLimit.value, lengthLimit.unit);
+    const over = fmt(lengthLimit.value + 1, lengthLimit.unit);
+    cases.push({
+      title: `글자수 상한 ${max} 확인 (붙여넣기·한글·이모지 포함)`,
+      objective: `입력 항목이 ${josa(max, '을')} 넘겨 저장되지 않는지, 넘겼을 때 화면이 어떻게 반응하는지 확인한다.`,
+      precondition: basePrecondition(req, `기획서 기준: ${clean(lengthLimit.source)}`),
+      steps: [
+        step('진입', qa(`${screen} 화면에 진입한다`)),
+        step('입력', qa(`키보드로 ${josa(max, '을')} 채우고, 한 글자를 더 친다`)),
+        step('입력', qa(`${josa(over, '을')} 한 번에 붙여넣기(Ctrl+V)로 넣는다 — 키보드 입력만 막아 둔 화면이 여기서 뚫린다`)),
+        step('입력', qa('한글·이모지·공백으로만 상한까지 채워 본다 (글자 세는 기준이 다를 수 있다)')),
+        step('실행', qa('저장·제출한 뒤 목록이나 상세 화면에서 저장된 값을 다시 연다')),
+        step('확인', qa('입력칸에 남은 글자 수와, 저장 후 다시 불러온 값의 글자 수를 센다')),
+      ],
+      expected: [
+        sys(`${josa(max, '을')} 넘는 입력을 받지 않거나, 넘치는 부분을 잘라 낸다`),
+        sys('붙여넣기로 넣어도 키보드 입력과 똑같이 막는다'),
+        sys('상한에 닿으면 남은 글자 수나 안내 문구를 보여준다'),
+        '저장 후 다시 불러온 값이 입력한 값과 같다 (중간에서 잘려 있지 않다)',
+        '한글·이모지를 세는 기준이 기획서와 같다 (다르면 기획 확인 항목)',
+      ],
+      tags: ['boundary', 'length', 'front'],
     });
   }
 
@@ -672,5 +770,5 @@ module.exports = {
   TYPE, clean, truncate, step, LABELS, WEIGHTS, fmt, formatCriterion,
   // 웹·사이트·실행 검증 생성기도 같은 문구 규칙을 쓴다
   // (수행 단계의 주어는 QA, 기대 결과의 주어는 시스템)
-  qa, sys, josa, withObject,
+  qa, sys, josa, withObject, quoted, quotedList,
 };

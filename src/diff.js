@@ -2,6 +2,7 @@
 
 const { parseDocument } = require('./engine/parser');
 const { buildTestCases, summarize } = require('./engine/generator');
+const { buildChangeTestCases } = require('./engine/changeTestCases');
 
 /** 비교용 정규화: 공백/기호 제거 후 소문자화 */
 function normKey(text) {
@@ -73,6 +74,9 @@ function diffSpecs(oldText, newText, options = {}) {
         requirement: nr,
         previousId: best.req.id,
         previousText: best.req.text,
+        // 변경 확인 TC 는 "무엇이 무엇으로 바뀌었는지" 를 알아야 만들 수 있다.
+        // 문장만으로는 문구·기준값이 어떻게 달라졌는지 되짚을 수 없어 통째로 들고 간다.
+        previous: best.req,
         similarity: Number(Math.min(best.score, 1).toFixed(3)),
         changes: describeChanges(best.req, nr),
       });
@@ -106,8 +110,14 @@ function diffSpecs(oldText, newText, options = {}) {
   };
 
   if (options.generateTestCases !== false) {
-    const tcs = buildTestCases(changedReqs, options.generatorOptions || {});
-    result.regressionTestCases = tcs.map((tc) => ({ ...tc, tags: [...tc.tags, 'regression'] }));
+    // 순서가 중요하다. QA 가 개정 기획서를 받고 제일 먼저 볼 것은 "바뀐 부분이
+    // 반영됐는가" 이지, 그 기능이 원래대로 도는가가 아니다. 변경 확인 TC 를 앞에 둔다.
+    const changeTcs = buildChangeTestCases({ added, modified, removed });
+    const featureTcs = buildTestCases(changedReqs, options.generatorOptions || {})
+      .map((tc) => ({ ...tc, tags: [...tc.tags, 'regression'] }));
+
+    result.changeTestCases = changeTcs;
+    result.regressionTestCases = [...changeTcs, ...featureTcs];
     result.regressionSummary = summarize(result.regressionTestCases);
   }
 
