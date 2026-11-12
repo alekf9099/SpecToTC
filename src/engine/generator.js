@@ -493,7 +493,7 @@ function edgeCases(req, limit) {
     cases.push({
       title: `${criterion} 기준 앞뒤 값 확인`,
       objective: `${screen} 화면에서 "${clean(c.source)}" 기준의 바로 앞·딱 그 값·바로 뒤를 넣었을 때 통과/거부가 맞게 갈리는지 확인한다.`,
-      precondition: basePrecondition(req, `기준값은 ${criterion}다 (기획서 표현: "${clean(c.source)}")`),
+      precondition: basePrecondition(req, `기준값: ${criterion} (기획서 표현: "${clean(c.source)}")`),
       steps: [
         step('진입', qa(`${screen} 화면에 진입한다`)),
         ...points.map((p) => step('입력', qa(
